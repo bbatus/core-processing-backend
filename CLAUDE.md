@@ -94,6 +94,12 @@ ConfigMap `core-processing-backend-flow`'dan gelir:
   `FLOW_INBOX_WRITE_ENABLED`, `FLOW_AI_CONFIRM_ENABLED` (Faz 3'e kadar `false`).
 - Efektif değer her zaman `FLOW_ENABLED && FLOW_X`. Pod açılışında okunur — değişiklik sonrası
   `oc rollout restart` gerekir.
+- **⚠️ AI Agent URL'i gerçek olana kadar (Didar ekibi, bkz. §1 tablosu) ilk TEST OCP deploy'unda
+  `FLOW_AI_CALL_ENABLED=false` verilmesi ÖNERİLİR:** liveness/readiness (`/actuator/health/*`) AI
+  Agent'a hiç dokunmaz (yalnızca DB sağlığına bakar), yani pod `AI_AGENT_BASE_URL` placeholder/sahte
+  olsa bile SORUNSUZ ayağa kalkar — bu bayrak yalnızca gereksiz retry/log gürültüsünü (her dispatch'te
+  3 deneme × Resilience4j) önlemek içindir, bir ön koşul DEĞİLDİR. Gerçek URL gelince configmap'i
+  güncelleyip `oc rollout restart` yeterli.
 
 ---
 
@@ -117,7 +123,9 @@ ConfigMap `core-processing-backend-flow`'dan gelir:
 1. **Önce oku:** `task.md` + (varsa yerel kopyası) `CPB_TASARIM_VE_GELISTIRME_PLANI_2026-09-02.md`.
 2. **Kapsam dışına çıkma:** DCase/Kafka/Oracle/LLM kodu yazma (bkz. §2).
 3. **Test:** her serviste unit; TC-C1..C9 (tasarım planı §13) entegrasyon (Testcontainers: PG,
-   AI Agent = WireMock). Hedef %90 coverage.
+   AI Agent = WireMock). Hedef %90 coverage. **2026-09-04'te gerçek Docker soketiyle koşturulup
+   doğrulandı** (53/53 yeşil) — CI'da hâlâ `-Dtest='!*IntegrationTest'` ile dışarıda bırakılıyor
+   (self-hosted runner'da Docker soketi yok, EP'deki aynı kısıt); tam kapı yerel `mvn clean verify`.
 4. **Migration:** yalnızca `ai_process`/`ai_interaction` — EP'nin tablolarına ASLA migration yazma.
 5. **Secrets:** repoya gerçek parola/API key yazma; `${...}` placeholder + GitHub Secrets.
 6. **Kill-switch:** yeni bir dış-etki (AI çağrısı, inbox yazma) eklerken ilgili bayrağı kontrol et.
@@ -139,11 +147,14 @@ oc apply -f k8s/                 # OCP deploy (CD pipeline yapar — configmap/f
 ## 9. Yapı
 
 ```
-task.md          → görev kırılımı (bu dosya)
+task.md          → görev kırılımı + güncel durum özeti
 CLAUDE.md        → bu dosya
+README.md        → proje tanıtımı, build/run/test/deploy how-to
 src/…            → kod (com.vodafone.genaiops.cpb)
 k8s/…             → OCP manifest'leri (serviceaccount/service/deployment/hpa otomatik;
                      configmap/configmap-flow/secret İLK KURULUMDA ELLE)
-.github/workflows/pipeline.yml → CI/CD (build-test + build-and-deploy; Fortify/Mend/Sonar HENÜZ
-                     YOK — EP reposundaki reusable workflow'lar bu repoya taşınmadı, bkz. pipeline.yml içindeki not)
+.github/workflows/pipeline.yml → CI/CD (build-test-scan + build-and-deploy)
+.github/workflows/{mend,fortify,sonar}.yml → EP'den birebir kopyalanan organizasyon-paylaşımlı
+                     reusable workflow'lar (2026-09-04) — repo-agnostik, repo adını kendiliğinden
+                     türetir; pipeline.yml'deki mend-scan/fortify-scan/sonar-scan job'ları bunları çağırır
 ```

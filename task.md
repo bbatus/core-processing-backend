@@ -10,6 +10,19 @@
 
 ## Durum Özeti (2026-09-04, güncellendi)
 
+### Şu an kalanlar (kısa liste)
+
+| # | Kalan | Bizim elimizde mi? |
+|---|---|---|
+| 1 | Gerçek AI Agent URL'i + auth şeması (Didar ekibi) | ❌ Hayır — dışarıdan bekleniyor |
+| 2 | README.md | ✅ Bu turda yazıldı |
+| 3 | Gerçek OCP (test) deploy'u | ✅ Elimizde — **AI Agent URL'i olmadan da yapılabilir** (bkz. CLAUDE.md §5, `FLOW_AI_CALL_ENABLED=false` önerisi) |
+| 4 | GHES Actions secrets/vars (`OPENSHIFT_*`, `REGISTRY_LOGIN_TOKEN`, `SONAR_TOKEN`, `FORTIFY_TOKEN`, `MEND_*`) bu repo için de tanımlı mı | ⚠️ Doğrulanmadı — organizasyon seviyesindeyse otomatik gelir, repo seviyesindeyse EP'ye özelse CPB'de eksik olabilir. **Kullanıcı GHES'te kontrol etmeli**, Claude'un buraya erişimi yok |
+| 5 | GHES self-hosted runner'lar (`githubrunner`, `MENDPROJECT-Vepas`, `fortify`) bu repoyu de kabul ediyor mu | ⚠️ Doğrulanmadı — aynı sebep |
+| 6 | R4'ün hedef mantığı (AI servis hesabı `srvc.vpai`) | ❌ Hayır — EP tarafında, DCase'de servis hesabı açılmadan mümkün değil |
+
+Geri kalan her şey (kod, testler, CI wiring, k8s manifestleri) **tamamlandı**. Aşağıda EPIC bazlı detay:
+
 **Gerçek OCP deploy'u hariç** planlanan hemen hemen her şey tamamlandı:
 
 - C1-C6 tamamlandı (iskelet, veri katmanı, poller, AI istemcisi, aksiyon üretimi — `relatedParty`
@@ -235,8 +248,8 @@
   "gerçek ocp deployu hariç her şeyi yapmamız lazım" — `k8s/configmap.yaml`/`configmap-flow.yaml`/
   `secret.yaml` ilk kurulumda elle `oc apply`; `AI_AGENT_BASE_URL` gerçek (ya da AI ekibinin
   sağladığı bir test) adresle doldurulmalı; pipeline `development`/`main`'e push ile tetiklenir.
-- [ ] **C8.4 — README**: çalıştırma/config/kill-switch özeti (EP'nin N3'üyle aynı boşluk, orada da
-  hâlâ yazılmadı).
+- [x] **C8.4 — README**: 2026-09-04'te yazıldı (`README.md`) — çalıştırma/config/kill-switch/deploy
+  özeti. (EP'nin kendi README boşluğu hâlâ ayrı bir konu, orada hâlâ yazılmadı.)
 
 ---
 
