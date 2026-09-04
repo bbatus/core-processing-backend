@@ -37,7 +37,7 @@ class AuditLogServiceTest {
     void record_kategoriTicketIdVeDetayDoguSekildeKaydedilir() {
         UUID dcaseTicketId = UUID.randomUUID();
 
-        service.record(AuditCategory.CPB_AI_CALL_SUCCEEDED, dcaseTicketId, Map.of("dispatchId", 42L));
+        service.write(AuditCategory.CPB_AI_CALL_SUCCEEDED, dcaseTicketId, Map.of("dispatchId", 42L));
 
         ArgumentCaptor<AuditLog> captor = ArgumentCaptor.forClass(AuditLog.class);
         verify(auditLogRepository).save(captor.capture());
@@ -50,7 +50,7 @@ class AuditLogServiceTest {
 
     @Test
     void record_dcaseTicketIdNullOlabilir() {
-        service.record(AuditCategory.CPB_SKIPPED_KILL_SWITCH, null, Map.of("reason", "FLOW_AI_CALL_ENABLED=false"));
+        service.write(AuditCategory.CPB_SKIPPED_KILL_SWITCH, null, Map.of("reason", "FLOW_AI_CALL_ENABLED=false"));
 
         ArgumentCaptor<AuditLog> captor = ArgumentCaptor.forClass(AuditLog.class);
         verify(auditLogRepository).save(captor.capture());
@@ -63,7 +63,7 @@ class AuditLogServiceTest {
         when(failingMapper.writeValueAsString(any())).thenThrow(new RuntimeException("serialize edilemedi"));
         AuditLogService serviceWithFailingMapper = new AuditLogService(auditLogRepository, failingMapper);
 
-        serviceWithFailingMapper.record(AuditCategory.CPB_AI_CALL_FAILED, UUID.randomUUID(), Map.of("x", new Object()));
+        serviceWithFailingMapper.write(AuditCategory.CPB_AI_CALL_FAILED, UUID.randomUUID(), Map.of("x", new Object()));
 
         ArgumentCaptor<AuditLog> captor = ArgumentCaptor.forClass(AuditLog.class);
         verify(auditLogRepository).save(captor.capture());

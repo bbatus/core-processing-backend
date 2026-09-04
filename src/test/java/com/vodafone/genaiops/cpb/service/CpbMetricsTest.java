@@ -1,6 +1,8 @@
 package com.vodafone.genaiops.cpb.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.vodafone.genaiops.cpb.enums.DispatchStatus;
@@ -70,7 +72,6 @@ class CpbMetricsTest {
         double value = registry.get("cpb_pending_dispatch").gauge().value();
 
         assertThat(value).isEqualTo(7.0);
-        org.mockito.Mockito.verify(aiDispatchRepository, org.mockito.Mockito.never())
-                .findPendingForUpdateSkipLocked(org.mockito.ArgumentMatchers.anyInt());
+        verify(aiDispatchRepository, never()).findPendingForUpdateSkipLocked(org.mockito.ArgumentMatchers.anyInt());
     }
 }

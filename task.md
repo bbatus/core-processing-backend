@@ -35,7 +35,14 @@
   `CPB_*`) aynı tabloda, doğru sırayla, birlikte doğrulandı.
 - **C8.3** (gerçek OCP deploy'u) — **kullanıcı kararıyla bu turun kapsamı dışında bırakıldı**,
   yapılmadı.
-- Fortify/Mend/Sonar tarama entegrasyonu — hâlâ yapılmadı (bkz. `pipeline.yml` içindeki not).
+- **C9 — SonarQube kod kalitesi (yerel tarama + tam remediasyon, 2026-09-04)**: yerel SonarQube
+  Community Edition (Docker, `sonar-net`) ile tarandı, 16 bulgu (1 HIGH/S1192 tekrarlı literal, 1
+  MEDIUM/S6213 `record` adı Java 16+ kısıtlı tanımlayıcı, 8 INFO/S8688 `LocalDateTime.now()`→
+  `now(ZoneOffset.UTC)`, 6 LOW test-hijyeni/S8924/S5853/S1128) tek tek çözüldü. Yeniden tarama
+  sonucu: **0 bug, 0 vulnerability, 0 code smell, coverage %92.1, Quality Gate OK (tüm rating'ler
+  A/1.0)**. **Not:** bu CI pipeline'a bağlı bir Sonar entegrasyonu DEĞİL — yerel/manuel bir tarama
+  turu; `pipeline.yml` içindeki Fortify/Mend/Sonar reusable-workflow placeholder'ları hâlâ ekip
+  tarafından doldurulacak (CLAUDE.md §6 kuralı gereği elle doldurulmadı).
 
 ---
 

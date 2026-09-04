@@ -5,6 +5,7 @@ import com.vodafone.genaiops.cpb.entity.AiDispatch;
 import com.vodafone.genaiops.cpb.enums.DispatchStatus;
 import com.vodafone.genaiops.cpb.repository.AiDispatchRepository;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +30,7 @@ public class DispatchClaimService {
     @Transactional
     public List<Long> claimBatch() {
         List<AiDispatch> pending = aiDispatchRepository.findPendingForUpdateSkipLocked(dispatchProperties.batchSize());
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         for (AiDispatch dispatch : pending) {
             dispatch.setStatus(DispatchStatus.CLAIMED);
             dispatch.setClaimedBy(POD_NAME);
@@ -47,7 +48,7 @@ public class DispatchClaimService {
      * dondurur — bkz. §9.3. */
     @Transactional
     public void reapStaleClaims() {
-        LocalDateTime threshold = LocalDateTime.now().minusMinutes(dispatchProperties.claimTimeoutMinutes());
+        LocalDateTime threshold = LocalDateTime.now(ZoneOffset.UTC).minusMinutes(dispatchProperties.claimTimeoutMinutes());
         List<AiDispatch> stale = aiDispatchRepository.findStaleClaimed(threshold);
         for (AiDispatch dispatch : stale) {
             log.warn("Claim timeout - PENDING'e geri donduruluyor: dispatchId={}, claimedBy={}, claimedAt={}",

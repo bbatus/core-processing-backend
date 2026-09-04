@@ -14,6 +14,7 @@ import com.vodafone.genaiops.cpb.repository.AiActionInboxRepository;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -53,7 +54,7 @@ public class ActionInboxWriter {
             inbox.setCompensation(false);
             inbox.setRequiresApproval(decision.requiresApproval());
             inbox.setStatus(ActionInboxStatus.PENDING);
-            inbox.setCreatedAt(LocalDateTime.now());
+            inbox.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
             return aiActionInboxRepository.save(inbox);
         });
     }
@@ -82,7 +83,7 @@ public class ActionInboxWriter {
         ArrayNode notes = root.putArray("note");
         ObjectNode note = notes.addObject();
         note.put("author", aiProperties.noteAuthor());
-        note.put("date", OffsetDateTime.now().format(ISO));
+        note.put("date", OffsetDateTime.now(ZoneOffset.UTC).format(ISO));
         note.put("text", solutionText == null ? "" : solutionText);
 
         // Onay gerekiyorsa ve daha once bir insan bu ticket'i tutuyorduysa (R4 tetiklenmeden once),

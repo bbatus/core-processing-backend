@@ -19,6 +19,7 @@ import com.vodafone.genaiops.cpb.repository.AiProcessRepository;
 import com.vodafone.genaiops.cpb.repository.TicketContextRepository;
 import com.vodafone.genaiops.cpb.repository.TicketRepository;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,6 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class DispatchProcessingService {
 
+    private static final String DISPATCH_ID = "dispatchId";
+
     private final TicketRepository ticketRepository;
     private final TicketContextRepository ticketContextRepository;
     private final AiDispatchRepository aiDispatchRepository;
@@ -54,7 +57,7 @@ public class DispatchProcessingService {
 
     @Transactional
     public void process(Long dispatchId) {
-        MDC.put("dispatchId", String.valueOf(dispatchId));
+        MDC.put(DISPATCH_ID, String.valueOf(dispatchId));
         MDC.put("correlationId", UUID.randomUUID().toString());
         try {
             doProcess(dispatchId);
@@ -75,8 +78,8 @@ public class DispatchProcessingService {
 
         if (!flowGuard.isAiCallEnabled()) {
             revertToPending(dispatch);
-            auditLogService.record(AuditCategory.CPB_SKIPPED_KILL_SWITCH, ticketDcaseId(dispatch),
-                    Map.of("dispatchId", dispatch.getId(), "reason", "FLOW_AI_CALL_ENABLED=false"));
+            auditLogService.write(AuditCategory.CPB_SKIPPED_KILL_SWITCH, ticketDcaseId(dispatch),
+                    Map.of(DISPATCH_ID, dispatch.getId(), "reason", "FLOW_AI_CALL_ENABLED=false"));
             return;
         }
 
@@ -85,8 +88,8 @@ public class DispatchProcessingService {
         int iteration = dispatch.getVersion();
         MDC.put("dcaseTicketId", String.valueOf(ticket.getDcaseTicketId()));
         MDC.put("iteration", String.valueOf(iteration));
-        auditLogService.record(AuditCategory.CPB_DISPATCH_CLAIMED, ticket.getDcaseTicketId(),
-                Map.of("dispatchId", dispatch.getId(), "triggerRule", String.valueOf(dispatch.getTriggerRule())));
+        auditLogService.write(AuditCategory.CPB_DISPATCH_CLAIMED, ticket.getDcaseTicketId(),
+                Map.of(DISPATCH_ID, dispatch.getId(), "triggerRule", String.valueOf(dispatch.getTriggerRule())));
         boolean maxIterationsReached = aiProperties.maxIterations() > 0 && iteration > aiProperties.maxIterations();
 
         AiProcess process = startProcess(dispatch, ticket, iteration);
@@ -109,8 +112,8 @@ public class DispatchProcessingService {
             cpbMetrics.incrementInboxWritten();
             finishProcess(process, AiProcessStatus.SUCCEEDED, null, "MAX_ITERATIONS_REACHED");
             completeDispatch(dispatch);
-            auditLogService.record(AuditCategory.CPB_MAX_ITERATIONS_REACHED, ticket.getDcaseTicketId(),
-                    Map.of("dispatchId", dispatch.getId(), "iteration", iteration));
+            auditLogService.write(AuditCategory.CPB_MAX_ITERATIONS_REACHED, ticket.getDcaseTicketId(),
+                    Map.of(DISPATCH_ID, dispatch.getId(), "iteration", iteration));
             return;
         }
 
@@ -124,8 +127,8 @@ public class DispatchProcessingService {
             cpbMetrics.incrementAiCallFailure();
             finishProcess(process, AiProcessStatus.FAILED, null, last.errorMessage());
             failDispatch(dispatch, last.errorMessage());
-            auditLogService.record(AuditCategory.CPB_AI_CALL_FAILED, ticket.getDcaseTicketId(),
-                    Map.of("dispatchId", dispatch.getId(), "error", String.valueOf(last.errorMessage())));
+            auditLogService.write(AuditCategory.CPB_AI_CALL_FAILED, ticket.getDcaseTicketId(),
+                    Map.of(DISPATCH_ID, dispatch.getId(), "error", String.valueOf(last.errorMessage())));
             return;
         }
 
@@ -134,11 +137,11 @@ public class DispatchProcessingService {
         finishProcess(process, AiProcessStatus.SUCCEEDED, last.response().solutionUniqueid(),
                 last.response().solution());
         completeDispatch(dispatch);
-        auditLogService.record(AuditCategory.CPB_AI_CALL_SUCCEEDED, ticket.getDcaseTicketId(),
-                Map.of("dispatchId", dispatch.getId(), "solutionUniqueid",
+        auditLogService.write(AuditCategory.CPB_AI_CALL_SUCCEEDED, ticket.getDcaseTicketId(),
+                Map.of(DISPATCH_ID, dispatch.getId(), "solutionUniqueid",
                         String.valueOf(last.response().solutionUniqueid())));
-        auditLogService.record(AuditCategory.CPB_INBOX_WRITTEN, ticket.getDcaseTicketId(),
-                Map.of("dispatchId", dispatch.getId()));
+        auditLogService.write(AuditCategory.CPB_INBOX_WRITTEN, ticket.getDcaseTicketId(),
+                Map.of(DISPATCH_ID, dispatch.getId()));
     }
 
     private AiProcess startProcess(AiDispatch dispatch, Ticket ticket, int iteration) {
@@ -151,7 +154,7 @@ public class DispatchProcessingService {
             process.setIteration(iteration);
             process.setTriggerRule(dispatch.getTriggerRule());
             process.setStatus(AiProcessStatus.IN_PROGRESS);
-            process.setStartedAt(LocalDateTime.now());
+            process.setStartedAt(LocalDateTime.now(ZoneOffset.UTC));
             return aiProcessRepository.save(process);
         });
     }
@@ -169,7 +172,7 @@ public class DispatchProcessingService {
             interaction.setResponseBody(attempt.responseBodyRaw());
             interaction.setErrorMessage(attempt.errorMessage());
             interaction.setDurationMs(attempt.durationMs());
-            interaction.setCreatedAt(LocalDateTime.now());
+            interaction.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
             aiInteractionRepository.save(interaction);
         }
     }
@@ -177,7 +180,7 @@ public class DispatchProcessingService {
     private void finishProcess(AiProcess process, AiProcessStatus status, String solutionUniqueid,
             String solutionOrError) {
         process.setStatus(status);
-        process.setFinishedAt(LocalDateTime.now());
+        process.setFinishedAt(LocalDateTime.now(ZoneOffset.UTC));
         process.setDurationMs(java.time.Duration.between(process.getStartedAt(), process.getFinishedAt()).toMillis());
         if (status == AiProcessStatus.FAILED) {
             process.setErrorMessage(solutionOrError);
@@ -190,7 +193,7 @@ public class DispatchProcessingService {
 
     private void completeDispatch(AiDispatch dispatch) {
         dispatch.setStatus(DispatchStatus.COMPLETED);
-        dispatch.setCompletedAt(LocalDateTime.now());
+        dispatch.setCompletedAt(LocalDateTime.now(ZoneOffset.UTC));
         aiDispatchRepository.save(dispatch);
     }
 

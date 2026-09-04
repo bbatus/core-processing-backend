@@ -3,6 +3,7 @@ package com.vodafone.genaiops.cpb.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -150,7 +151,7 @@ class ActionInboxWriterTest {
         writer.writeProposal(dispatch, ticket, new AiFetchResponse("s2", "t2", "NEEDS_APPROVAL"), false);
 
         var captor = org.mockito.ArgumentCaptor.forClass(UUID.class);
-        verify(aiActionInboxRepository, org.mockito.Mockito.times(2)).findBySourceMessageId(captor.capture());
+        verify(aiActionInboxRepository, times(2)).findBySourceMessageId(captor.capture());
         assertThat(captor.getAllValues().get(0)).isEqualTo(captor.getAllValues().get(1));
     }
 }

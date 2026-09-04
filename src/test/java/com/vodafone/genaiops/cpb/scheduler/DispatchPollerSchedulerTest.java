@@ -1,6 +1,5 @@
 package com.vodafone.genaiops.cpb.scheduler;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;

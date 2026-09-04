@@ -27,7 +27,6 @@ import com.vodafone.genaiops.cpb.repository.AiInteractionRepository;
 import com.vodafone.genaiops.cpb.repository.AiProcessRepository;
 import com.vodafone.genaiops.cpb.repository.TicketContextRepository;
 import com.vodafone.genaiops.cpb.repository.TicketRepository;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -123,7 +122,7 @@ class DispatchProcessingServiceTest {
         assertThat(dispatch.getStatus()).isEqualTo(DispatchStatus.PENDING);
         assertThat(dispatch.getClaimedBy()).isNull();
         verify(aiAgentClient, never()).fetchWithRetries(any());
-        verify(auditLogService).record(eq(com.vodafone.genaiops.cpb.enums.AuditCategory.CPB_SKIPPED_KILL_SWITCH),
+        verify(auditLogService).write(eq(com.vodafone.genaiops.cpb.enums.AuditCategory.CPB_SKIPPED_KILL_SWITCH),
                 any(), any());
     }
 
@@ -212,7 +211,7 @@ class DispatchProcessingServiceTest {
 
         verify(aiAgentClient, never()).fetchWithRetries(any());
         assertThat(dispatch.getStatus()).isEqualTo(DispatchStatus.COMPLETED);
-        verify(auditLogService).record(
+        verify(auditLogService).write(
                 eq(com.vodafone.genaiops.cpb.enums.AuditCategory.CPB_MAX_ITERATIONS_REACHED), any(), any());
     }
 

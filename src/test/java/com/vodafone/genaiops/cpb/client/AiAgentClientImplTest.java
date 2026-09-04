@@ -96,8 +96,7 @@ class AiAgentClientImplTest {
 
         List<AiCallResult> results = client.fetchWithRetries(sampleRequest());
 
-        assertThat(results).hasSize(3);
-        assertThat(results).noneMatch(AiCallResult::success);
+        assertThat(results).hasSize(3).noneMatch(AiCallResult::success);
         assertThat(results.get(2).errorMessage()).isNotNull();
     }
 
