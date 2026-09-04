@@ -14,9 +14,10 @@
 
 - C1-C6 tamamlandı (iskelet, veri katmanı, poller, AI istemcisi, aksiyon üretimi — `relatedParty`
   dahil, MDC, Micrometer metrikleri).
-- C7.1 (unit testler) tamamlandı: **32/32 yeşil** (`FlowGuardTest`, `DispatchClaimServiceTest`,
-  `DispatchProcessingServiceTest` — C5.3 regresyonu dahil, `ActionInboxWriterTest`,
-  `ContextRequestMapperTest`, `AiAgentClientImplTest`).
+- C7.1 (unit testler) tamamlandı: **49/49 yeşil**, davranış içeren TÜM sınıflar kapsandı
+  (`FlowGuardTest`, `DispatchClaimServiceTest`, `DispatchProcessingServiceTest` — C5.3 regresyonu
+  dahil, `ActionInboxWriterTest`, `ContextRequestMapperTest`, `AiAgentClientImplTest`,
+  `DispatchPollerSchedulerTest`, `CpbMetricsTest`, `AuditLogServiceTest`, `AiAgentClientConfigTest`).
 - C7.2 (Testcontainers entegrasyon testleri) **kod olarak yazıldı** ama bu oturumun sandbox'ında
   **çalıştırılamadı** — Testcontainers'ın Docker-outside-of-Docker ile host daemon'a bağlanması
   denendi (`docker.sock` mount edilebiliyor, proje dizini bind-mount edilemiyor), ama Ryuk'a
@@ -159,11 +160,17 @@
 
 ## EPIC C7 — Testler
 
-- [x] **C7.1 — Unit testler (32/32 yeşil)**: `FlowGuardTest`, `DispatchClaimServiceTest`,
-  `DispatchProcessingServiceTest` (mutlu yol, kill-switch, AI hata, max-iterations, **C5.3
-  regresyon testi — zaten SUCCEEDED/FAILED bir sürecin AI'ı tekrar çağırmadığını doğrular**),
-  `ActionInboxWriterTest` (karar tablosu + `relatedParty` var/yok senaryoları + idempotency),
-  `ContextRequestMapperTest`, `AiAgentClientImplTest` (gerçek WireMock ile retry senaryoları).
+- [x] **C7.1 — Unit testler, TÜM davranış içeren sınıflar (49/49 yeşil, 2026-09-04 tamamlandı)**:
+  `FlowGuardTest`, `DispatchClaimServiceTest`, `DispatchProcessingServiceTest` (mutlu yol,
+  kill-switch, AI hata, max-iterations, **C5.3 regresyon testi**), `ActionInboxWriterTest` (karar
+  tablosu + `relatedParty` var/yok + idempotency), `ContextRequestMapperTest`,
+  `AiAgentClientImplTest` (gerçek WireMock ile retry), `DispatchPollerSchedulerTest` (poll-kapalı
+  kısayolu, bir işin hatasının diğerlerini engellemediği), `CpbMetricsTest` (sayaç/timer/gauge —
+  gauge'un `countByStatus` kullandığını, `SKIP LOCKED` sorgusunu KULLANMADIĞINI doğrular),
+  `AuditLogServiceTest` (JSON serileştirme başarısız olursa patlamıyor), `AiAgentClientConfigTest`
+  (Authorization header apiKey'e göre eklenip eklenmediği). Entity/dto/enum/config-record'lar
+  (davranış içermiyor, EP'nin kendi konvansiyonuyla tutarlı) ve `CoreProcessingBackendApplication`
+  (pom.xml jacoco excludes'unda zaten hariç) bilerek test edilmedi.
 - [x] **C7.2 — Entegrasyon testleri (Testcontainers PostgreSQL + WireMock) — KOD YAZILDI**:
   `AbstractIntegrationTest` + `DispatchProcessingIntegrationTest` (TC-C1 mutlu yol, TC-C2 AI
   sürekli 5xx→FAILED, TC-C6 idempotent reprocessing) + `KillSwitchIntegrationTest` (TC-C7).
