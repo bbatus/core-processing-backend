@@ -1,0 +1,291 @@
+# Organizasyonun paylasilan SonarQube kalite taramasi — reusable workflow.
+# Diger vepas-ai projelerinde kullanilan sablonla BIREBIR ayni yapi (java + npm dallari);
+# bu repo su an icin yalnizca `project_type: java` ile cagiriyor (bkz. pipeline.yml).
+#
+# `runs-on: githubrunner` — mend/fortify'nin aksine ozel bir runner ISTEMEZ, build-test-scan
+# ile ayni self-hosted runner etiketini kullanir (ayni makine tek runner ise is'ler paralel
+# degil sirali calisabilir — bu bir yapilandirma sinirlamasi, workflow hatasi degil).
+#
+# NOT: SONAR_SETTING, SONAR_ENTERPRISE_HOST_URL organizasyon genelinde ayni Variables'tan
+# gelir; cagiran is (`secrets: inherit` ile) bunlari otomatik tasir — sadece repo'ya ozel
+# REGISTRY_LOGIN_TOKEN ve SONAR_TOKEN acikca parametre olarak istenir.
+name: sonar
+
+on:
+  workflow_call:
+    inputs:
+      env_name:
+        required: true
+        type: string
+      project_type:
+        required: false
+        type: string
+      sonar_blocker:
+        required: false
+        type: string
+    secrets:
+      REGISTRY_LOGIN_TOKEN:
+        required: true
+      SONAR_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  sonar:
+    name: sonar - ${{ inputs.project_type }}
+    runs-on: githubrunner
+
+    environment: ${{ inputs.env_name }}
+
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ vars.SONAR_ENTERPRISE_HOST_URL }}
+
+      DEPLOYMENT_NAME: ${{ github.event.repository.name }}
+      TARGET_BRANCH: ${{ inputs.target_branch }}
+      SONAR_BLOCKER: ${{ inputs.sonar_blocker }}
+
+      JAVA_HOME_17: /Products/java/jdk-17.0.19
+      JAVA_HOME_21: /Products/java/jdk-21.0.10
+      MAVEN_HOME: /Products/maven/apache-maven-3.8.4
+      NODE_HOME: /Products/sonarqube/node-20
+      SONAR_SCANNER_HOME: /Products/sonarqube/sonar-scanner/sonar-scanner-10/sonar-scanner-5.0.1.3006
+
+    steps:
+      # =========================================================
+      # ORTAK ADIMLAR
+      # =========================================================
+
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show SonarQube project information
+        shell: bash
+        env:
+          PROJECT_TYPE: ${{ needs.detect-project-type.outputs.project_type }}
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] Project type    : ${PROJECT_TYPE}"
+          echo "[INFO] Sonar project   : ${DEPLOYMENT_NAME}"
+          echo "[INFO] Target branch   : ${TARGET_BRANCH}"
+          echo "[INFO] Sonar blocker   : ${SONAR_BLOCKER}"
+          echo "[INFO] Sonar host      : ${SONAR_HOST_URL}"
+      # =========================================================
+      # JAVA / MAVEN SONAR ADIMLARI
+      # =========================================================
+
+      # ⚠️ 2026-08-07 sahada dogrulandi (mend.yml/fortify.yml'deki ayni sorunla eslesiyor):
+      # `vars.SONAR_SETTING`/`vars.MAVEN_SETTING` bu repo/org baglaminda BOS gelebiliyor. pom.xml'de
+      # internal <repository> yok — kosullu hale getirildi: bossa `-s` bayragi hic verilmez.
+      - name: Create Maven settings.xml for SonarQube (varsa)
+        if: ${{inputs.project_type == 'java' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RAW_SETTING='${{ vars.SONAR_SETTING }}'
+          if [[ -n "$RAW_SETTING" ]]; then
+            echo "$RAW_SETTING" > "$GITHUB_WORKSPACE/github-settings.xml"
+            sed -i \
+              "s/{{REGISTRY_LOGIN_USERNAME}}/${{ vars.REGISTRY_LOGIN_USERNAME }}/g" \
+              "$GITHUB_WORKSPACE/github-settings.xml"
+            sed -i \
+              "s|{{REGISTRY_LOGIN_TOKEN}}|${{ secrets.REGISTRY_LOGIN_TOKEN }}|g" \
+              "$GITHUB_WORKSPACE/github-settings.xml"
+            echo "maven_settings_arg=-s $GITHUB_WORKSPACE/github-settings.xml" >> "$GITHUB_ENV"
+          else
+            echo "[WARN] vars.SONAR_SETTING bos - internal registry olmadan (Maven Central) devam ediliyor."
+            echo "maven_settings_arg=" >> "$GITHUB_ENV"
+          fi
+
+      - name: Detect Java version from pom.xml
+        id: sonar-detect-java
+        if: ${{inputs.project_type == 'java' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -f pom.xml ]]; then
+            echo "[ERROR] pom.xml not found in repository root"
+            exit 1
+          fi
+
+          JAVA_VERSION="$(grep -oPm1 '(?<=<java.version>)[^<]+' pom.xml || true)"
+
+          if [[ -z "${JAVA_VERSION}" ]]; then
+            JAVA_VERSION="$(grep -oPm1 '(?<=<maven.compiler.source>)[^<]+' pom.xml || true)"
+          fi
+          if [[ -z "${JAVA_VERSION}" ]]; then
+            JAVA_VERSION="$(grep -oPm1 '(?<=<maven.compiler.target>)[^<]+' pom.xml || true)"
+          fi
+          if [[ -z "${JAVA_VERSION}" ]]; then
+            echo "[ERROR] Could not determine Java version from pom.xml"
+            exit 1
+          fi
+
+          JAVA_VERSION="$(echo "${JAVA_VERSION}" | tr -d '[:space:]')"
+
+          echo "[INFO] Detected Java version: ${JAVA_VERSION}"
+          echo "java_version=${JAVA_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set Java and Maven environment for SonarQube
+        if: ${{inputs.project_type == 'java' }}
+        shell: bash
+        env:
+          JAVA_VERSION: ${{ steps.sonar-detect-java.outputs.java_version }}
+        run: |
+          set -euo pipefail
+
+          case "${JAVA_VERSION}" in
+            11|java11)
+              JAVA_HOME_SELECTED="${JAVA_HOME_17}"
+              ;;
+            17|java17)
+              JAVA_HOME_SELECTED="${JAVA_HOME_17}"
+              ;;
+            21|java21)
+              JAVA_HOME_SELECTED="${JAVA_HOME_21}"
+              ;;
+            *)
+              echo "[ERROR] Unsupported Java version: ${JAVA_VERSION}"
+              exit 1
+              ;;
+          esac
+
+          echo "JAVA_HOME=${JAVA_HOME_SELECTED}" >> "$GITHUB_ENV"
+          echo "${JAVA_HOME_SELECTED}/bin" >> "$GITHUB_PATH"
+          echo "${MAVEN_HOME}/bin" >> "$GITHUB_PATH"
+
+          echo "[INFO] JAVA_HOME selected: ${JAVA_HOME_SELECTED}"
+          echo "[INFO] MAVEN_HOME: ${MAVEN_HOME}"
+
+      - name: Verify Java and Maven for SonarQube
+        if: ${{inputs.project_type == 'java' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] JAVA_HOME=${JAVA_HOME}"
+
+          "${JAVA_HOME}/bin/java" -version
+          mvn -version
+
+      # ⚠️ 2026-08-24 sahada dogrulandi: bu adim TUM testleri (Testcontainers/entegrasyon testleri
+      # dahil) calistirmaya calisiyordu — bu runner'da Docker container'lari (Postgres/Kafka/MinIO)
+      # test setinin ortasinda kararsizlasip kartopu hatalara (CannotCreateTransaction, connection
+      # timeout) yol aciyordu. Sonar'a zaten jacoco coverage report path'i (sonar.coverage.jacoco.
+      # xmlReportPaths) hic verilmiyordu — yani test calistirmanin Sonar sonucuna bir katkisi yoktu,
+      # sadece risk ekliyordu. Karar (2026-08-24, kullanici): Sonar YALNIZCA statik kod analizi
+      # yapsin — Mend/Fortify'nin zaten kullandigi `-DskipTests` deseniyle testler hic calismaz,
+      # Docker/Testcontainers'a bagimlilik tamamen kalkar. Coverage metrigi Sonar tarafinda
+      # gorunmez (bu bilinclli bir tercih) — unit test coverage'i ayrica Docker'da olculdu (bkz.
+      # EP_CPB_SONRAKI_ADIMLAR_AKSIYON_PLANI_2026-08-19.md ya da sohbet gecmisi): %85 satir,
+      # %69 dal (branch) — %60 hedefinin zaten uzerinde.
+      - name: Build and scan Maven project with SonarQube
+        id: sonar-java-scan
+        if: ${{inputs.project_type == 'java' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export JAVA_HOME="${JAVA_HOME}"
+          export PATH="${JAVA_HOME}/bin:${MAVEN_HOME}/bin:${PATH}"
+
+          echo "[INFO] Running Maven SonarQube scan..."
+          echo "[INFO] Sonar blocker: ${SONAR_BLOCKER}"
+          echo "[INFO] Sonar project: ${DEPLOYMENT_NAME}"
+          echo "[INFO] Target branch: ${TARGET_BRANCH}"
+
+          mvn clean install \
+            -DskipTests=true \
+            -Dfmt.skip=true \
+            org.owasp:dependency-check-maven:aggregate \
+            -Dformats=XML,HTML \
+            -DfailOnError=false \
+            -DautoUpdate=false \
+            sonar:sonar \
+            -Dsonar.projectKey="${DEPLOYMENT_NAME}" \
+            -Dsonar.projectName="${DEPLOYMENT_NAME}" \
+            -Dsonar.host.url="${SONAR_HOST_URL}" \
+            -Dsonar.login="${SONAR_TOKEN}" \
+            -Dsonar.qualitygate.wait="${SONAR_BLOCKER}" \
+            -Dsonar.qualitygate.timeout=600 \
+            ${maven_settings_arg}
+
+      # =========================================================
+      # NPM SONAR ADIMLARI (bu repoda su an KULLANILMIYOR — project_type hep "java";
+      # ileride ayri bir frontend servisi eklenirse dokunmadan calisir)
+      # =========================================================
+
+      - name: Set Java, Node and Sonar Scanner environment
+        if: ${{inputs.project_type == 'npm' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "JAVA_HOME=${JAVA_HOME_17}" >> "$GITHUB_ENV"
+          echo "${JAVA_HOME_17}/bin" >> "$GITHUB_PATH"
+
+          echo "NODE_HOME=${NODE_HOME}" >> "$GITHUB_ENV"
+          echo "${NODE_HOME}/bin" >> "$GITHUB_PATH"
+
+          echo "SONAR_SCANNER_HOME=${SONAR_SCANNER_HOME}" >> "$GITHUB_ENV"
+          echo "${SONAR_SCANNER_HOME}/bin" >> "$GITHUB_PATH"
+
+          chmod +x "${SONAR_SCANNER_HOME}/bin/sonar-scanner" || true
+
+          echo "[INFO] JAVA_HOME=${JAVA_HOME_17}"
+          echo "[INFO] NODE_HOME=${NODE_HOME}"
+          echo "[INFO] SONAR_SCANNER_HOME=${SONAR_SCANNER_HOME}"
+
+      - name: Verify Java, Node and Sonar Scanner
+        if: ${{inputs.project_type == 'npm' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export PATH="${JAVA_HOME}/bin:${NODE_HOME}/bin:${SONAR_SCANNER_HOME}/bin:${PATH}"
+
+          java -version
+          node --version
+          npm --version
+          sonar-scanner --version
+
+      - name: Run SonarQube scan for NPM project
+        id: sonar-npm-scan
+        if: ${{inputs.project_type == 'npm' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export PATH="${JAVA_HOME}/bin:${NODE_HOME}/bin:${SONAR_SCANNER_HOME}/bin:${PATH}"
+
+          sonar-scanner \
+            -Dsonar.projectKey="${DEPLOYMENT_NAME}" \
+            -Dsonar.projectName="${DEPLOYMENT_NAME}" \
+            -Dsonar.host.url="${SONAR_HOST_URL}" \
+            -Dsonar.login="${SONAR_TOKEN}" \
+            -Dsonar.sources=. \
+            -Dsonar.sourceEncoding=UTF-8 \
+            -Dsonar.exclusions="**/node_modules/**,**/dist/**,**/build/**,**/.next/**,**/coverage/**" \
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+            -Dsonar.qualitygate.wait="${SONAR_BLOCKER}" \
+            -Dsonar.qualitygate.timeout=600
+
+      # =========================================================
+      # ORTAK CLEANUP
+      # =========================================================
+
+      - name: Cleanup SonarQube temporary files
+        if: always()
+        shell: bash
+        run: |
+          echo "[INFO] Cleaning SonarQube temporary files..."
+
+          rm -f "$GITHUB_WORKSPACE/github-settings.xml"

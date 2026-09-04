@@ -18,13 +18,22 @@
   (`FlowGuardTest`, `DispatchClaimServiceTest`, `DispatchProcessingServiceTest` — C5.3 regresyonu
   dahil, `ActionInboxWriterTest`, `ContextRequestMapperTest`, `AiAgentClientImplTest`,
   `DispatchPollerSchedulerTest`, `CpbMetricsTest`, `AuditLogServiceTest`, `AiAgentClientConfigTest`).
-- C7.2 (Testcontainers entegrasyon testleri) **kod olarak yazıldı** ama bu oturumun sandbox'ında
-  **çalıştırılamadı** — Testcontainers'ın Docker-outside-of-Docker ile host daemon'a bağlanması
-  denendi (`docker.sock` mount edilebiliyor, proje dizini bind-mount edilemiyor), ama Ryuk'a
-  (Testcontainers'ın temizlik sidecar'ı) ağ erişimi kurulamadı — **EP'nin kendi CI'sinin aynı
-  sebeple (`bu self-hosted runner'da Docker soketi yok`) entegrasyon testlerini atladığı kısıtın
-  birebir aynısı.** Testler kullanıcının kendi terminalinde (`mvn clean verify`, gerçek Docker
-  Desktop) veya Docker soketi olan bir CI runner'da sorunsuz çalışmalı.
+- **C7.2 (Testcontainers entegrasyon testleri) — 2026-09-04'te gerçek Docker ile ÇALIŞTIRILDI VE
+  DOĞRULANDI.** İlk denemede `docker.sock`'u mount etmeden nested bir container'da çalıştırılmaya
+  çalışıldığı için "Docker environment yok" hatası alınmıştı (yanlış teşhis: Ryuk erişilemezliği
+  sanılmıştı, gerçek sebep hiç Docker soketi verilmemesiydi). Düzeltme: `docker.sock` mount edildi +
+  `TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal` verildi (Docker Desktop for Mac'te sibling
+  container'ların yayınladığı portlara bridge-gateway IP'siyle değil bu şekilde ulaşılabiliyor).
+  Bu, gerçek bir test-izolasyonu hatasını ortaya çıkardı: `DispatchProcessingIntegrationTest`'in 3
+  metodu sınıf-genelinde paylaşılan TEK bir Postgres container + gerçek arka plan scheduler
+  kullanıyordu ama testler arası DB temizliği yoktu — `findAll()` ile global sayım yapan
+  assertion'lar önceki test metodundan kalan satırları da görüyordu. `AbstractIntegrationTest`'e
+  `@BeforeEach cleanDatabaseBeforeEachTest()` eklendi (ai_action_inbox/ai_interaction/ai_process/
+  ai_dispatch/ticket_context/ticket/audit_log DELETE). Sonuç: **53/53 test yeşil** (49 unit + 4
+  Testcontainers: TC-C1/C2/C6 + `KillSwitchIntegrationTest`), jacoco kapısı geçti. CI'da hâlâ
+  `-Dtest='!*IntegrationTest'` ile dışarıda bırakılıyor (EP'deki aynı gerekçe: self-hosted runner'da
+  Docker soketi yok) — ama artık "yazıldı ama hiç çalışmadı" değil, "yerel Docker'da kanıtlandı,
+  CI'da bilinçli olarak atlanıyor" durumu.
 - **C8.1** (CPB tek başına Docker simülasyonu) — tamamlandı, önceki turda.
 - **C8.2** (EP + CPB birlikte, gerçek Kafka + gerçek Postgres + 2 WireMock) — **tamamlandı ve tam
   Faz 2 döngüsü ilk kez uçtan uca kanıtlandı**: Kafka event → EP R3/R4 → `ai_dispatch(PENDING)` →
@@ -40,9 +49,14 @@
   MEDIUM/S6213 `record` adı Java 16+ kısıtlı tanımlayıcı, 8 INFO/S8688 `LocalDateTime.now()`→
   `now(ZoneOffset.UTC)`, 6 LOW test-hijyeni/S8924/S5853/S1128) tek tek çözüldü. Yeniden tarama
   sonucu: **0 bug, 0 vulnerability, 0 code smell, coverage %92.1, Quality Gate OK (tüm rating'ler
-  A/1.0)**. **Not:** bu CI pipeline'a bağlı bir Sonar entegrasyonu DEĞİL — yerel/manuel bir tarama
-  turu; `pipeline.yml` içindeki Fortify/Mend/Sonar reusable-workflow placeholder'ları hâlâ ekip
-  tarafından doldurulacak (CLAUDE.md §6 kuralı gereği elle doldurulmadı).
+  A/1.0)**.
+- **C10 — Fortify/Mend/Sonar CI'ya bağlandı (2026-09-04)**: EP'nin 3 organizasyon-paylaşımlı reusable
+  workflow dosyası (`mend.yml`/`fortify.yml`/`sonar.yml` — tamamen repo-agnostik, `github.event.
+  repository.name`'den kendi kendine repo adını türetiyor) bu repoya da birebir kopyalandı;
+  `pipeline.yml`'e EP ile aynı yapıda `mend-scan`/`fortify-scan`/`sonar-scan` job'ları eklendi
+  (`build-test-scan` ile paralel, `fortify_blocker="0"`/`sonar_blocker="false"` — EP'deki aynı
+  2026-08-05 kararı). Artık placeholder değil, gerçek pipeline job'ları — ilk çalıştırma sonucu
+  (organizasyon runner'larında gerçekten geçip geçmediği) push sonrası GHES'te görülecek.
 
 ---
 

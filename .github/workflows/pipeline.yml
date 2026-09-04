@@ -55,6 +55,10 @@ jobs:
 
       # EP'deki ayni gerekce: entegrasyon testleri (Testcontainers) bu self-hosted runner'da Docker
       # soketi olmadigi icin CI'da kosmaz — yalnizca unit testler + jacoco RAPORU (kapi verify'da).
+      # TAM KAPI (jacoco + entegrasyon testleri dahil) yerel/Docker'li bir ortamda `mvn clean verify`
+      # ile dogrulanir — 2026-09-04'te gercek Docker soketi ile (host.docker.internal Testcontainers/
+      # Ryuk yonlendirmesiyle) dogrulandi: 53/53 test yesil (49 unit + 4 Testcontainers entegrasyon:
+      # TC-C1/C2/C6 + KillSwitchIntegrationTest), jacoco kapisi gecti.
       - name: Build & Test (unit)
         run: mvn -B clean test -Dtest='!*IntegrationTest' -DfailIfNoTests=false
 
@@ -66,17 +70,41 @@ jobs:
           name: test-reports
           path: target/surefire-reports
 
-      # FORTIFY / MEND / SONARQUBE: EP'nin pipeline.yml'inde bunlar organizasyonun paylasilan
-      # reusable workflow'lariyla (./.github/workflows/{mend,fortify,sonar}.yml) calisiyor — o
-      # dosyalar EP reposunda yasiyor, BU repoda YOK (yeni, ayri bir repo). CLAUDE.md'nin kendi
-      # kuraliyla tutarli sekilde (guvenlik tarama placeholder'larini TAHMIN ETMEDEN doldurma) burayi
-      # BOS birakiyorum. Ekip icin iki secenek:
-      #   a) EP'deki 3 dosyayi (mend.yml/fortify.yml/sonar.yml) bu repoya da kopyalamak, VEYA
-      #   b) cross-repo reusable workflow olarak cagirmak (org izinlerine bagli, DOGRULANMADI):
-      #        mend-scan:
-      #          uses: bbatus/genaiops-event-processor/.github/workflows/mend.yml@main
-      #          with: { target_branch: ${{ github.ref_name }}, env_name: vepas-ai-am, project_type: java }
-      #          secrets: inherit
+  mend-scan:
+    name: Mend SCA Scan
+    # build-test-scan ile PARALEL calisir (`needs` yok) — EP'deki ayni yapi/gerekce.
+    uses: ./.github/workflows/mend.yml
+    with:
+      target_branch: ${{ github.ref_name }}
+      env_name: vepas-ai-am
+      project_type: java
+    secrets: inherit
+
+  fortify-scan:
+    name: Fortify SAST Scan
+    # build-test-scan ve mend-scan ile PARALEL calisir (`needs` yok). fortify_blocker=0: ilk
+    # entegrasyon asamasinda high/critical bulgu pipeline'i KIRMAZ, yalnizca loglanip SSC'ye
+    # yuklenir — EP ile AYNI karar (2026-08-05). Ekip degerlendirip gercek bir kapi istediginde
+    # bu deger "1" yapilabilir.
+    uses: ./.github/workflows/fortify.yml
+    with:
+      env_name: vepas-ai-am
+      source_repo: ${{ github.repository }}
+      project_type: java
+      fortify_blocker: "0"
+    secrets: inherit
+
+  sonar-scan:
+    name: SonarQube Code Quality Scan
+    # EP'deki AYNI gerekceyle sonar.yml `-DskipTests` ile YALNIZCA statik kod analizi yapar —
+    # testleri hic calistirmaz, Docker/Testcontainers'a hic ihtiyac duymaz. Unit+entegrasyon test
+    # sonuclari (53/53) ve coverage (%92.1) ayrica yerel Docker'da 2026-09-04'te dogrulandi.
+    uses: ./.github/workflows/sonar.yml
+    with:
+      env_name: vepas-ai-am
+      project_type: java
+      sonar_blocker: "false"
+    secrets: inherit
 
   build-and-deploy:
     name: Build Image & Deploy to OpenShift (test)

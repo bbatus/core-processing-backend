@@ -1,0 +1,309 @@
+# Organizasyonun paylasilan Fortify SAST taramasi — reusable workflow.
+# Diger vepas-ai projelerinde kullanilan sablonla BIREBIR ayni yapi (java + npm dallari);
+# bu repo su an icin yalnizca `project_type: java` ile cagiriyor (bkz. pipeline.yml).
+#
+# NEDEN AYRI JOB (mend-scan ile ayni gerekce): sourceanalyzer araci yalnizca `fortify`
+# etiketli self-hosted runner'da kurulu; build-test-scan'in kullandigi `githubrunner`'da yok.
+# Bu yuzden build-test-scan job'una gomulemez, ayri bir job olarak PARALEL calisir.
+#
+# NOT: MAVEN_SETTING, SEC_PROJECT_NAME, JIRA_PROJECT_KEY organizasyon genelinde ayni
+# Variables/Secrets'tan gelir; cagiran is (`secrets: inherit` ile) bunlari otomatik tasir —
+# sadece repo'ya ozel REGISTRY_LOGIN_TOKEN ve FORTIFY_TOKEN acikca parametre olarak istenir.
+name: fortify
+
+on:
+  workflow_call:
+    inputs:
+      env_name:
+        required: true
+        type: string
+      source_repo:
+        required: true
+        type: string
+      project_type:
+        required: false
+        type: string
+      fortify_blocker:
+        required: false
+        type: string
+    secrets:
+      REGISTRY_LOGIN_TOKEN:
+        required: true
+      FORTIFY_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  fortify:
+    name: fortify - ${{ inputs.project_type }}
+    runs-on: fortify
+
+    environment: ${{ inputs.env_name }}
+
+    env:
+      SSC_URL: "http://10.86.48.69:8080/ssc"
+      FORTIFY_TOKEN: ${{ secrets.FORTIFY_TOKEN }}
+      PROJECT_NAME: ${{ vars.SEC_PROJECT_NAME }}
+      DEPLOYMENT_NAME: ${{ github.event.repository.name }}
+      FORTIFY_BLOCKER: ${{ inputs.fortify_blocker }}
+      APPLICATION_VERSION: develop
+
+    steps:
+      # =========================================================
+      # ORTAK ADIMLAR
+      # =========================================================
+
+      - name: Fix PATH for Fortify tools
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "/usr/bin" >> "$GITHUB_PATH"
+          echo "/bin" >> "$GITHUB_PATH"
+
+          which git || true
+          git --version || true
+
+          which tar || true
+          tar --version || true
+
+      - name: Checkout code
+        env:
+          PATH: "$PATH:/usr/local/bin/"
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repo }}
+
+      - name: Show Fortify project information
+        shell: bash
+        env:
+          PROJECT_TYPE: ${{ inputs.project_type }}
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] Project type       : ${PROJECT_TYPE}"
+          echo "[INFO] Deployment name    : ${DEPLOYMENT_NAME}"
+          echo "[INFO] Security project   : ${PROJECT_NAME}"
+          echo "[INFO] Application version: ${APPLICATION_VERSION}"
+          echo "[INFO] Fortify blocker    : ${FORTIFY_BLOCKER}"
+
+      - name: Clean previous Fortify build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] Cleaning previous Fortify build..."
+          sourceanalyzer -b "${DEPLOYMENT_NAME}" -clean
+
+      # =========================================================
+      # JAVA / MAVEN ADIMLARI
+      # =========================================================
+
+      # ⚠️ 2026-08-07 sahada dogrulandi (mend.yml'deki ayni sorunla eslesiyor): `vars.MAVEN_SETTING`
+      # bu repo/org baglaminda BOS geliyor, Maven'i "Non-readable settings" ile patlatiyordu.
+      # pom.xml'de internal <repository> yok, yerel build zaten settings.xml'siz calisiyor —
+      # kosullu hale getirildi: bossa `-s` bayragi hic verilmez.
+      - name: Create Maven settings.xml (varsa)
+        if: ${{ inputs.project_type == 'java' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RAW_SETTING='${{ vars.MAVEN_SETTING }}'
+          if [[ -n "$RAW_SETTING" ]]; then
+            echo "$RAW_SETTING" > "$GITHUB_WORKSPACE/github-settings.xml"
+            sed -i "s/{{REGISTRY_LOGIN_USERNAME}}/${{ vars.REGISTRY_LOGIN_USERNAME }}/" "$GITHUB_WORKSPACE/github-settings.xml"
+            sed -i "s|{{REGISTRY_LOGIN_TOKEN}}|${{ secrets.REGISTRY_LOGIN_TOKEN }}|g" "$GITHUB_WORKSPACE/github-settings.xml"
+            echo "maven_settings_arg=-s $GITHUB_WORKSPACE/github-settings.xml" >> "$GITHUB_ENV"
+          else
+            echo "[WARN] vars.MAVEN_SETTING bos - internal registry olmadan (Maven Central) devam ediliyor."
+            echo "maven_settings_arg=" >> "$GITHUB_ENV"
+          fi
+
+      - name: Detect Java version from pom.xml
+        id: detect-java
+        if: ${{ inputs.project_type == 'java' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          JAVA_VERSION=$(grep -m1 -oPm1 "(?<=<maven.compiler.source>)[^<]+" pom.xml || true)
+
+          if [ -z "$JAVA_VERSION" ]; then
+            JAVA_VERSION=$(grep -m1 -oPm1 "(?<=<java.version>)[^<]+" pom.xml || true)
+          fi
+
+          if [ -z "$JAVA_VERSION" ]; then
+            echo "No Java version found in pom.xml, defaulting to 11"
+            JAVA_VERSION="11"
+          fi
+
+          echo "Detected Java version: $JAVA_VERSION"
+          echo "java_version=$JAVA_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Translate Java project with Fortify
+        if: ${{ inputs.project_type == 'java' }}
+        shell: bash
+        env:
+          JAVA_VERSION: ${{ steps.detect-java.outputs.java_version }}
+        run: |
+          set -euo pipefail
+
+          case "${JAVA_VERSION}" in
+            11|java11)
+              JAVA_HOME_SELECTED="/Products/jdk-11"
+              ;;
+            17|java17)
+              JAVA_HOME_SELECTED="/Products/jdk-17"
+              ;;
+            21|java21)
+              JAVA_HOME_SELECTED="/Products/jdk-21"
+              ;;
+            *)
+              echo "[ERROR] Unsupported Java version: ${JAVA_VERSION}"
+              exit 1
+              ;;
+          esac
+
+          export JAVA_HOME="${JAVA_HOME_SELECTED}"
+          export PATH="${JAVA_HOME}/bin:/Products/apache-maven-3.8.4/bin:${PATH}"
+
+          echo "[INFO] JAVA_HOME=${JAVA_HOME}"
+          java -version
+          mvn -version
+
+          echo "[INFO] Translating Maven project..."
+
+          sourceanalyzer \
+            -b "${DEPLOYMENT_NAME}" \
+            mvn -U clean verify \
+            -DskipTests=true \
+            ${maven_settings_arg}
+
+      # =========================================================
+      # NPM ADIMLARI (bu repoda su an KULLANILMIYOR — project_type hep "java";
+      # ileride ayri bir frontend servisi eklenirse dokunmadan calisir)
+      # =========================================================
+
+      - name: Translate NPM project with Fortify
+        if: ${{ inputs.project_type == 'npm' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] Translating NPM project..."
+
+          sourceanalyzer \
+            -b "${DEPLOYMENT_NAME}" \
+            -exclude "**/node_modules/**" \
+            -exclude "**/.next/**" \
+            -exclude "**/dist/**" \
+            -exclude "**/build/**" \
+            -exclude "**/coverage/**" \
+            .
+
+      # =========================================================
+      # ORTAK SCAN, SSC VE BLOCKER ADIMLARI
+      # =========================================================
+
+      - name: Run Fortify scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] Running Fortify scan..."
+
+          sourceanalyzer \
+            -b "${DEPLOYMENT_NAME}" \
+            -scan \
+            -f "${DEPLOYMENT_NAME}.fpr"
+
+          if [[ ! -f "${DEPLOYMENT_NAME}.fpr" ]]; then
+            echo "[ERROR] Fortify FPR file was not generated."
+            exit 1
+          fi
+
+          echo "[INFO] Generated FPR: ${DEPLOYMENT_NAME}.fpr"
+
+      - name: Create Fortify project in SSC
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] Creating or checking project in SSC..."
+
+          curl --location \
+            --request POST 'http://10.86.48.73/ssc-project' \
+            --header 'X-FolivoraToken: b7aa97a4cfc97b8f5f72ffb2475793af8ccba61c3f6543dabee' \
+            --header 'Content-Type: application/json' \
+            --data '{
+              "projectName": "'"${DEPLOYMENT_NAME}"'",
+              "versionName": "'"${APPLICATION_VERSION}"'",
+              "project": "'"${PROJECT_NAME}"'",
+              "jiraProjectKey": "${{ vars.JIRA_PROJECT_KEY }}"
+            }' || echo "[WARN] SSC project creation returned non-zero, continuing..."
+
+      - name: Upload FPR file to SSC
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] Uploading FPR file to SSC..."
+
+          fortifyclient \
+            -url "${SSC_URL}" \
+            -authtoken "${FORTIFY_TOKEN}" \
+            uploadFPR \
+            -file "${DEPLOYMENT_NAME}.fpr" \
+            -application "${DEPLOYMENT_NAME}" \
+            -applicationVersion "${APPLICATION_VERSION}"
+
+          echo "[INFO] FPR upload completed."
+
+      - name: Check Fortify vulnerabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] Checking critical and high vulnerabilities..."
+          echo "[INFO] Fortify blocker value: ${FORTIFY_BLOCKER}"
+
+          RESPONSE=$(
+            curl -s --location \
+            --request POST 'http://10.86.48.73/api/fortify/scan/result' \
+            --header 'X-FolivoraToken: b7aa97a4cfc97b8f5f72ffb2475793af8ccba61c3f6543dabee' \
+            --header 'Content-Type: application/json' \
+              --data '{
+                "applicationName": "'"${DEPLOYMENT_NAME}"'",
+                "versionName": "'"${APPLICATION_VERSION}"'"
+              }'
+          )
+
+          echo "[INFO] Fortify result: ${RESPONSE}"
+
+          if [[ "$RESPONSE" =~ Passed ]]; then
+            echo "No high/critical error found."
+          else
+            echo "Fortify found high/critical vulnerabilities."
+
+            if [ "${FORTIFY_BLOCKER}" = "1" ]; then
+              echo "[ERROR] Fortify blocker is 1. Failing pipeline."
+              exit 1
+            else
+              echo "[WARNING] Fortify blocker is ${FORTIFY_BLOCKER}. Pipeline will continue."
+              exit 0
+            fi
+          fi
+
+      - name: Cleanup Fortify workspace
+        if: always()
+        shell: bash
+        run: |
+          echo "[INFO] Cleaning Fortify build artifacts..."
+
+          sourceanalyzer -b "${DEPLOYMENT_NAME}" -clean || true
+          rm -f "${DEPLOYMENT_NAME}.fpr"
+          rm -f "$GITHUB_WORKSPACE/github-settings.xml"

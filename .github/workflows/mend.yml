@@ -1,0 +1,274 @@
+# Organizasyonun paylasilan Mend (WhiteSource) SCA taramasi — reusable workflow.
+# Diger vepas-ai projelerinde kullanilan sablonla BIREBIR ayni yapi (java + npm dallari);
+# bu repo su an icin yalnizca `project_type: java` ile cagiriyor (bkz. pipeline.yml),
+# npm dali gelecekte baska bir servis eklenirse dokunulmadan calisir.
+#
+# NOT: MEND_PROXY_PASSWORD, MAVEN_SETTING, JIRA_PROJECT_KEY gibi degerler bu workflow_call
+# bloğunda ayrica tanimlanmadi cunku organizasyon genelinde ayni Variables/Secrets kullanilir;
+# cagiran is (`secrets: inherit` ile) bunlari otomatik tasir — sadece repo'ya ozel
+# REGISTRY_LOGIN_TOKEN acikca parametre olarak istenir.
+name: mend
+
+on:
+  workflow_call:
+    inputs:
+      target_branch:
+        required: true
+        type: string
+      env_name:
+        required: true
+        type: string
+      project_type:
+        required: false
+        type: string
+    secrets:
+      REGISTRY_LOGIN_TOKEN:
+        required: true
+
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  mend:
+    name: mend - ${{ inputs.project_type }}
+    runs-on: MENDPROJECT-Vepas
+
+    environment: ${{ inputs.env_name }}
+
+    env:
+      SERVICE_NAME: ${{ github.event.repository.name }}
+      PROJECT_NAME: ${{ vars.SEC_PROJECT_NAME }}
+      BRANCH_NAME: ${{ inputs.target_branch }}
+      GIT_URL: github.vpara.local/${{ github.repository_owner }}/${{ github.event.repository.name }}
+
+      JAVA_HOME_11: /Products/dev-tools/java-11
+      JAVA_HOME_17: /Products/dev-tools/java-17
+      JAVA_HOME_21: /Products/dev-tools/java-21
+
+      MAVEN_HOME: /Products/dev-tools/maven-3.8.6
+      NODE_HOME: /Products/dev-tools/node-20
+
+    steps:
+      # =========================================================
+      # ORTAK ADIMLAR
+      # =========================================================
+
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Show detected project information
+        shell: bash
+        env:
+          PROJECT_TYPE: ${{ inputs.project_type }}
+        run: |
+          set -euo pipefail
+
+          echo "[INFO] Project type : ${PROJECT_TYPE}"
+          echo "[INFO] Service name : ${SERVICE_NAME}"
+          echo "[INFO] Branch name : ${BRANCH_NAME}"
+
+      - name: Prepare Mend files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Copying unified-agent files to workspace..."
+          cp -r /Products/unified-agent/* "$GITHUB_WORKSPACE/"
+
+      # =========================================================
+      # JAVA / MAVEN ADIMLARI
+      # =========================================================
+
+      - name: Detect Java version from pom.xml
+        if: ${{ inputs.project_type == 'java' }}
+        id: detect-java
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          JAVA_VERSION=$(grep -m1 -oPm1 "(?<=<maven.compiler.source>)[^<]+" pom.xml || true)
+
+          if [[ -z "$JAVA_VERSION" ]]; then
+            JAVA_VERSION=$(grep -m1 -oPm1 "(?<=<java.version>)[^<]+" pom.xml || true)
+          fi
+
+          if [[ -z "$JAVA_VERSION" ]]; then
+            echo "No java version found in pom.xml, defaulting to 11"
+            JAVA_VERSION=11
+          fi
+
+          echo "Detected Java version: $JAVA_VERSION"
+          echo "java_version=$JAVA_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set JAVA_HOME for Maven project
+        if: ${{ inputs.project_type == 'java' }}
+        shell: bash
+        env:
+          JAVA_VERSION: ${{ steps.detect-java.outputs.java_version }}
+        run: |
+          set -euo pipefail
+
+          case "${JAVA_VERSION}" in
+            11|java11)
+              JAVA_HOME_SELECTED="${JAVA_HOME_11}"
+              ;;
+            17|java17)
+              JAVA_HOME_SELECTED="${JAVA_HOME_17}"
+              ;;
+            21|java21)
+              JAVA_HOME_SELECTED="${JAVA_HOME_21}"
+              ;;
+            *)
+              echo "[ERROR] Unsupported Java version: ${JAVA_VERSION}"
+              exit 1
+              ;;
+          esac
+
+          echo "JAVA_HOME=${JAVA_HOME_SELECTED}" >> "$GITHUB_ENV"
+          echo "${JAVA_HOME_SELECTED}/bin" >> "$GITHUB_PATH"
+          echo "${MAVEN_HOME}/bin" >> "$GITHUB_PATH"
+
+          echo "[INFO] Selected JAVA_HOME: ${JAVA_HOME_SELECTED}"
+
+      # ⚠️ 2026-08-07 sahada dogrulandi: `vars.MAVEN_SETTING` bu repo/org baglaminda BOS geliyor
+      # ("echo "" > github-settings.xml" olarak calisiyor) — Maven bunu gecersiz/bos XML olarak
+      # okuyup "Non-readable settings ... no more data available" ile patliyordu. Bizim pom.xml'de
+      # HICBIR internal <repository>/<pluginRepository> tanimi YOK (dogrulandi) ve yerel Docker
+      # build'imiz zaten plain `mvn` ile (settings.xml'siz, dogrudan Maven Central) basariyla
+      # calisiyor — yani bu settings.xml bizim build'imiz icin ZORUNLU degil. Kosullu hale
+      # getirildi: deger doluysa kullanilir (ileride GHES'te duzelirse otomatik devreye girer),
+      # bossa `-s` bayragi hic verilmez, Maven kendi varsayilanlariyla (Maven Central) devam eder.
+      - name: Create Maven settings.xml (varsa)
+        if: ${{ inputs.project_type == 'java' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RAW_SETTING='${{ vars.MAVEN_SETTING }}'
+          if [[ -n "$RAW_SETTING" ]]; then
+            echo "$RAW_SETTING" > "$GITHUB_WORKSPACE/github-settings.xml"
+            sed -i "s/{{MEND_PROXY_USER}}/${{ vars.MEND_PROXY_USER }}/" "$GITHUB_WORKSPACE/github-settings.xml"
+            sed -i "s/{{MEND_PROXY_PASSWORD}}/${{ secrets.MEND_PROXY_PASSWORD }}/" "$GITHUB_WORKSPACE/github-settings.xml"
+            sed -i "s/{{REGISTRY_LOGIN_USERNAME}}/${{ vars.REGISTRY_LOGIN_USERNAME }}/" "$GITHUB_WORKSPACE/github-settings.xml"
+            sed -i "s|{{REGISTRY_LOGIN_TOKEN}}|${{ secrets.REGISTRY_LOGIN_TOKEN }}|g" "$GITHUB_WORKSPACE/github-settings.xml"
+            echo "maven_settings_arg=-s $GITHUB_WORKSPACE/github-settings.xml" >> "$GITHUB_ENV"
+          else
+            echo "[WARN] vars.MAVEN_SETTING bos - internal registry olmadan (Maven Central) devam ediliyor."
+            echo "maven_settings_arg=" >> "$GITHUB_ENV"
+          fi
+
+          cp -r /Products/unified-agent/* "$GITHUB_WORKSPACE/"
+
+      - name: Build and Scan Maven with Mend
+        if: ${{ inputs.project_type == 'java' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export JAVA_HOME="${JAVA_HOME}"
+          export PATH="${JAVA_HOME}/bin:${MAVEN_HOME}/bin:${PATH}"
+          export JAVA_OPTS="-Dfile.encoding=UTF-8"
+
+          java -version
+          mvn -version
+
+          echo "Building application..."
+          mvn clean package \
+            -DskipTests \
+            -Dspring.profiles.active="${BRANCH_NAME}" \
+            ${maven_settings_arg}
+
+          echo "Running Mend scan..."
+          export WS_PROJECTTAG="project:${PROJECT_NAME}"
+          export WS_PROJECTNAME="${SERVICE_NAME}"
+          export WS_MAVEN_ADDITIONALARGUMENTS="-DskipTests -Dspring.profiles.active=${BRANCH_NAME} ${maven_settings_arg}"
+
+          java -jar "$GITHUB_WORKSPACE/unified-agent.jar"
+
+          echo "Creating Jira Issues..."
+          ./create-ticket.sh \
+            --service_name="${SERVICE_NAME}" \
+            --git-url="${GIT_URL}" \
+            --branch-name="${BRANCH_NAME}" \
+            --jira-key="${{ vars.JIRA_PROJECT_KEY }}"
+
+      # =========================================================
+      # NPM / YARN ADIMLARI (bu repoda su an KULLANILMIYOR — project_type hep "java";
+      # ileride ayri bir frontend servisi eklenirse dokunmadan calisir)
+      # =========================================================
+
+      - name: Set JAVA_HOME and NODE_HOME for NPM project
+        if: ${{ inputs.project_type == 'npm' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "JAVA_HOME=${JAVA_HOME_17}" >> "$GITHUB_ENV"
+          echo "${JAVA_HOME_17}/bin" >> "$GITHUB_PATH"
+
+          echo "NODE_HOME=${NODE_HOME}" >> "$GITHUB_ENV"
+          echo "${NODE_HOME}/bin" >> "$GITHUB_PATH"
+
+      - name: Install NPM dependencies
+        if: ${{ inputs.project_type == 'npm' }}
+        shell: bash
+        env:
+          WS_PROXY_USER: ${{ vars.MEND_PROXY_USER }}
+          WS_PROXY_PASS: ${{ secrets.MEND_PROXY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          export JAVA_HOME="${JAVA_HOME_17}"
+          export PATH="${JAVA_HOME}/bin:${NODE_HOME}/bin:${PATH}"
+
+          npm config set strict-ssl false
+          npm config set noproxy ".vodafone.local,vodafone.local,localhost,127.0.0.1,172.24.100.50,172.24.134.96"
+          npm config set proxy "http://${WS_PROXY_USER}:${WS_PROXY_PASS}@172.31.53.99:8080/"
+          npm config set https-proxy "http://${WS_PROXY_USER}:${WS_PROXY_PASS}@172.31.53.99:8080/"
+
+          rm -rf node_modules
+
+          npm dedupe || echo "npm dedupe failed, cont..."
+
+          npm install --legacy-peer-deps
+
+      - name: Scan NPM with Mend
+        if: ${{ inputs.project_type == 'npm' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export JAVA_HOME="${JAVA_HOME_17}"
+          export PATH="${JAVA_HOME}/bin:${NODE_HOME}/bin:${PATH}"
+          export JAVA_OPTS="-Dfile.encoding=UTF-8"
+
+          echo "Running Mend scan..."
+
+          export WS_PROJECTTAG="project:${PROJECT_NAME}"
+          export WS_PROJECTNAME="${SERVICE_NAME}"
+          export WS_NPM_RESOLVEDEPENDENCIES=true
+          export WS_NPM_RUNPRESTEP=true
+          export WS_NPM_IGNORENPMINSTALLERRORS=false
+
+          java -jar "$GITHUB_WORKSPACE/unified-agent.jar"
+
+          ./create-ticket.sh \
+            --service_name="${SERVICE_NAME}" \
+            --git-url="${GIT_URL}" \
+            --branch-name="${BRANCH_NAME}" \
+            --jira-key="${{ vars.JIRA_PROJECT_KEY }}"
+
+      # =========================================================
+      # ORTAK CLEANUP
+      # =========================================================
+
+      - name: Cleanup Mend workspace
+        if: always()
+        shell: bash
+        run: |
+          echo "[INFO] Cleaning Mend workspace..."
+          rm -rf "$GITHUB_WORKSPACE"/*

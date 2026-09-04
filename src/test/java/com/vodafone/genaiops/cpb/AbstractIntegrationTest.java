@@ -71,6 +71,22 @@ public abstract class AbstractIntegrationTest {
         AI_AGENT.resetAll();
     }
 
+    /**
+     * Container sınıf genelinde tek instance (singleton pattern) ve gerçek zamanlayıcı arka planda
+     * çalıştığı için testler arasında satır sızıntısını önler — testler {@code findAll()} ile global
+     * sayım yaptığından (dispatch/ticket bazlı filtre yerine) her testten önce temiz tablo şart.
+     */
+    @BeforeEach
+    void cleanDatabaseBeforeEachTest() {
+        jdbcTemplate.update("DELETE FROM ai_action_inbox");
+        jdbcTemplate.update("DELETE FROM ai_interaction");
+        jdbcTemplate.update("DELETE FROM ai_process");
+        jdbcTemplate.update("DELETE FROM ai_dispatch");
+        jdbcTemplate.update("DELETE FROM ticket_context");
+        jdbcTemplate.update("DELETE FROM ticket");
+        jdbcTemplate.update("DELETE FROM audit_log");
+    }
+
     @DynamicPropertySource
     static void dynamicProps(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
