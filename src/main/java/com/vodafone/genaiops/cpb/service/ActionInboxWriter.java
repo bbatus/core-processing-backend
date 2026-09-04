@@ -7,6 +7,7 @@ import com.vodafone.genaiops.cpb.config.AiProperties;
 import com.vodafone.genaiops.cpb.dto.AiFetchResponse;
 import com.vodafone.genaiops.cpb.entity.AiActionInbox;
 import com.vodafone.genaiops.cpb.entity.AiDispatch;
+import com.vodafone.genaiops.cpb.entity.Ticket;
 import com.vodafone.genaiops.cpb.enums.ActionInboxStatus;
 import com.vodafone.genaiops.cpb.enums.TriggerRule;
 import com.vodafone.genaiops.cpb.repository.AiActionInboxRepository;
@@ -21,12 +22,10 @@ import org.springframework.stereotype.Component;
 /**
  * {@code ai_action_inbox} kaydını üretir — bkz. TASARIM_PLANI §7.3/§7.4.
  *
- * <p>⚠️ Bilinen eksik (TASARIM_PLANI §14-S9, açık madde): DCase PATCH gövdesine ticket'ı hangi
- * insana geri atayacağımızı ({@code relatedParty[role=assignee]}) EP'nin şu anki {@code ticket}
- * şemasından türetemiyoruz — "önceki insan assignee" bilgisi ayrı bir alan gerektiriyor. Bu yüzden
- * şimdilik yalnızca {@code note[]} (yorum) yazılıyor, assignee değişikliği İÇERMİYOR — EP'nin
- * {@code ActionApplyServiceImpl} tarafı bunu olduğu gibi DCase'e uygular, ticket mevcut assignee'de
- * kalır. EP'ye alan eklenince burası da güncellenmeli.</p>
+ * <p>DCase PATCH gövdesine ticket'ı hangi insana geri atayacağımız ({@code relatedParty
+ * [role=assignee]}), EP'nin {@code ticket.previous_human_assignee_id/_name} alanlarından (2026-09-04,
+ * V5 migration) okunur — onay gerektiren (requiresApproval=true) her aksiyonda, bu alan doluysa
+ * eklenir. Bkz. TASARIM_PLANI §14-S9 (artık ÇÖZÜLDÜ).</p>
  */
 @Component
 @RequiredArgsConstructor
@@ -38,7 +37,8 @@ public class ActionInboxWriter {
     private final AiProperties aiProperties;
     private final ObjectMapper objectMapper;
 
-    public AiActionInbox writeProposal(AiDispatch dispatch, AiFetchResponse aiResponse, boolean maxIterationsReached) {
+    public AiActionInbox writeProposal(AiDispatch dispatch, Ticket ticket, AiFetchResponse aiResponse,
+            boolean maxIterationsReached) {
         Decision decision = decide(dispatch.getTriggerRule(), aiResponse, maxIterationsReached);
         UUID sourceMessageId = deterministicId(dispatch.getId());
 
@@ -49,7 +49,7 @@ public class ActionInboxWriter {
             inbox.setDispatchId(dispatch.getId());
             inbox.setVersion(dispatch.getVersion());
             inbox.setActionType(decision.actionType());
-            inbox.setDcaseUpdatePayload(buildPayload(decision.solutionText()));
+            inbox.setDcaseUpdatePayload(buildPayload(decision.solutionText(), decision.requiresApproval(), ticket));
             inbox.setCompensation(false);
             inbox.setRequiresApproval(decision.requiresApproval());
             inbox.setStatus(ActionInboxStatus.PENDING);
@@ -77,13 +77,28 @@ public class ActionInboxWriter {
         return new Decision("PROPOSE_RESOLUTION", true, solutionText);
     }
 
-    private String buildPayload(String solutionText) {
+    private String buildPayload(String solutionText, boolean requiresApproval, Ticket ticket) {
         ObjectNode root = objectMapper.createObjectNode();
         ArrayNode notes = root.putArray("note");
         ObjectNode note = notes.addObject();
         note.put("author", aiProperties.noteAuthor());
         note.put("date", OffsetDateTime.now().format(ISO));
         note.put("text", solutionText == null ? "" : solutionText);
+
+        // Onay gerekiyorsa ve daha once bir insan bu ticket'i tutuyorduysa (R4 tetiklenmeden once),
+        // ticket'i o kisiye geri atariz - EP'nin gercek PATCH ornegiyle (masterbysolutiondesigner
+        // §6.5) birebir ayni TMF621 sekli.
+        if (requiresApproval && ticket != null && ticket.getPreviousHumanAssigneeId() != null) {
+            ArrayNode relatedParty = root.putArray("relatedParty");
+            ObjectNode assignee = relatedParty.addObject();
+            assignee.put("role", "assignee");
+            ObjectNode party = assignee.putObject("partyOrPartyRole");
+            party.put("@type", "PartyRef");
+            party.put("id", ticket.getPreviousHumanAssigneeId().toString());
+            if (ticket.getPreviousHumanAssigneeName() != null) {
+                party.put("name", ticket.getPreviousHumanAssigneeName());
+            }
+        }
         return root.toString();
     }
 

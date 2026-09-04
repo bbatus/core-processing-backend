@@ -46,6 +46,14 @@ public class Ticket {
     @Column(name = "assignee_name")
     private String assigneeName;
 
+    /** R4 tetiklenmeden önceki insan assignee — EP'nin V5 migration'ıyla eklendi (2026-09-04).
+     * DCase'e geri atama yaparken ({@code relatedParty[role=assignee]}) kullanılır. */
+    @Column(name = "previous_human_assignee_id")
+    private UUID previousHumanAssigneeId;
+
+    @Column(name = "previous_human_assignee_name")
+    private String previousHumanAssigneeName;
+
     @Column(name = "customer_id")
     private UUID customerId;
 

@@ -22,6 +22,7 @@ public class DispatchClaimService {
 
     private final AiDispatchRepository aiDispatchRepository;
     private final DispatchProperties dispatchProperties;
+    private final CpbMetrics cpbMetrics;
 
     private static final String POD_NAME = System.getenv().getOrDefault("HOSTNAME", "cpb-local");
 
@@ -37,6 +38,7 @@ public class DispatchClaimService {
         aiDispatchRepository.saveAll(pending);
         if (!pending.isEmpty()) {
             log.info("Dispatch claim edildi: count={}, ids={}", pending.size(), pending.stream().map(AiDispatch::getId).toList());
+            cpbMetrics.incrementDispatchClaimed(pending.size());
         }
         return pending.stream().map(AiDispatch::getId).toList();
     }

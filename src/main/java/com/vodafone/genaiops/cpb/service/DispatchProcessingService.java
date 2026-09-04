@@ -21,8 +21,10 @@ import com.vodafone.genaiops.cpb.repository.TicketRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,9 +50,20 @@ public class DispatchProcessingService {
     private final AuditLogService auditLogService;
     private final FlowGuard flowGuard;
     private final AiProperties aiProperties;
+    private final CpbMetrics cpbMetrics;
 
     @Transactional
     public void process(Long dispatchId) {
+        MDC.put("dispatchId", String.valueOf(dispatchId));
+        MDC.put("correlationId", UUID.randomUUID().toString());
+        try {
+            doProcess(dispatchId);
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    private void doProcess(Long dispatchId) {
         AiDispatch dispatch = aiDispatchRepository.findById(dispatchId).orElse(null);
         if (dispatch == null || dispatch.getStatus() != DispatchStatus.CLAIMED) {
             // EP tarafinda arada CANCELLED/OBSOLETE olmus olabilir (ticket baska gruba gecti vb.) —
@@ -58,6 +71,7 @@ public class DispatchProcessingService {
             log.info("Dispatch artik CLAIMED degil, atlaniyor: dispatchId={}", dispatchId);
             return;
         }
+        MDC.put("version", String.valueOf(dispatch.getVersion()));
 
         if (!flowGuard.isAiCallEnabled()) {
             revertToPending(dispatch);
@@ -69,6 +83,10 @@ public class DispatchProcessingService {
         Ticket ticket = ticketRepository.findById(dispatch.getTicketId()).orElseThrow();
         TicketContext context = ticketContextRepository.findById(dispatch.getContextId()).orElseThrow();
         int iteration = dispatch.getVersion();
+        MDC.put("dcaseTicketId", String.valueOf(ticket.getDcaseTicketId()));
+        MDC.put("iteration", String.valueOf(iteration));
+        auditLogService.record(AuditCategory.CPB_DISPATCH_CLAIMED, ticket.getDcaseTicketId(),
+                Map.of("dispatchId", dispatch.getId(), "triggerRule", String.valueOf(dispatch.getTriggerRule())));
         boolean maxIterationsReached = aiProperties.maxIterations() > 0 && iteration > aiProperties.maxIterations();
 
         AiProcess process = startProcess(dispatch, ticket, iteration);
@@ -87,7 +105,8 @@ public class DispatchProcessingService {
         }
 
         if (maxIterationsReached) {
-            actionInboxWriter.writeProposal(dispatch, null, true);
+            actionInboxWriter.writeProposal(dispatch, ticket, null, true);
+            cpbMetrics.incrementInboxWritten();
             finishProcess(process, AiProcessStatus.SUCCEEDED, null, "MAX_ITERATIONS_REACHED");
             completeDispatch(dispatch);
             auditLogService.record(AuditCategory.CPB_MAX_ITERATIONS_REACHED, ticket.getDcaseTicketId(),
@@ -100,7 +119,9 @@ public class DispatchProcessingService {
         persistInteractions(process, attempts);
 
         AiCallResult last = attempts.get(attempts.size() - 1);
+        cpbMetrics.recordAiCallDuration(last.durationMs());
         if (!last.success()) {
+            cpbMetrics.incrementAiCallFailure();
             finishProcess(process, AiProcessStatus.FAILED, null, last.errorMessage());
             failDispatch(dispatch, last.errorMessage());
             auditLogService.record(AuditCategory.CPB_AI_CALL_FAILED, ticket.getDcaseTicketId(),
@@ -108,7 +129,8 @@ public class DispatchProcessingService {
             return;
         }
 
-        actionInboxWriter.writeProposal(dispatch, last.response(), false);
+        actionInboxWriter.writeProposal(dispatch, ticket, last.response(), false);
+        cpbMetrics.incrementInboxWritten();
         finishProcess(process, AiProcessStatus.SUCCEEDED, last.response().solutionUniqueid(),
                 last.response().solution());
         completeDispatch(dispatch);

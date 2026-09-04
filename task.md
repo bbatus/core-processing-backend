@@ -8,15 +8,33 @@
 
 ---
 
-## Durum Özeti (2026-09-04)
+## Durum Özeti (2026-09-04, güncellendi)
 
-İskelet + veri katmanı + dispatch işleme zinciri **uçtan uca Docker'da canlı doğrulandı** (gerçek
-Postgres + EP'nin gerçek migration'ları + WireMock ile sahte AI Agent): claim (`SKIP LOCKED`) → AI
-çağrısı → `ai_process`/`ai_interaction` kaydı → `ai_action_inbox` yazımı (gerçek TMF621 `note[]`
-formatında) → `ai_dispatch` kapanışı → `audit_log`. İdempotency (aynı dispatch iki kez claim
-edilirse ne `ai_action_inbox`'a çift kayıt ne de gereksiz ikinci bir AI çağrısı) test edilip
-doğrulandı. **Henüz yapılmayan:** unit/entegrasyon testleri (C7), gerçek OCP deploy'u (C8),
-Fortify/Mend/Sonar tarama entegrasyonu.
+**Gerçek OCP deploy'u hariç** planlanan hemen hemen her şey tamamlandı:
+
+- C1-C6 tamamlandı (iskelet, veri katmanı, poller, AI istemcisi, aksiyon üretimi — `relatedParty`
+  dahil, MDC, Micrometer metrikleri).
+- C7.1 (unit testler) tamamlandı: **32/32 yeşil** (`FlowGuardTest`, `DispatchClaimServiceTest`,
+  `DispatchProcessingServiceTest` — C5.3 regresyonu dahil, `ActionInboxWriterTest`,
+  `ContextRequestMapperTest`, `AiAgentClientImplTest`).
+- C7.2 (Testcontainers entegrasyon testleri) **kod olarak yazıldı** ama bu oturumun sandbox'ında
+  **çalıştırılamadı** — Testcontainers'ın Docker-outside-of-Docker ile host daemon'a bağlanması
+  denendi (`docker.sock` mount edilebiliyor, proje dizini bind-mount edilemiyor), ama Ryuk'a
+  (Testcontainers'ın temizlik sidecar'ı) ağ erişimi kurulamadı — **EP'nin kendi CI'sinin aynı
+  sebeple (`bu self-hosted runner'da Docker soketi yok`) entegrasyon testlerini atladığı kısıtın
+  birebir aynısı.** Testler kullanıcının kendi terminalinde (`mvn clean verify`, gerçek Docker
+  Desktop) veya Docker soketi olan bir CI runner'da sorunsuz çalışmalı.
+- **C8.1** (CPB tek başına Docker simülasyonu) — tamamlandı, önceki turda.
+- **C8.2** (EP + CPB birlikte, gerçek Kafka + gerçek Postgres + 2 WireMock) — **tamamlandı ve tam
+  Faz 2 döngüsü ilk kez uçtan uca kanıtlandı**: Kafka event → EP R3/R4 → `ai_dispatch(PENDING)` →
+  CPB claim → AI Agent çağrısı → `ai_action_inbox` (TMF621 `note[]`) → EP'nin
+  `ActionInboxPoller`'ı → R7 versiyon kontrolü → DCase PATCH → `WAITING_APPROVAL` → (E7 yorum) →
+  R5 → CPB 2. tur (iteration=2) → AI `NO_ACTION_NEEDED` → `TICKET.status=COMPLETED`. İki servisin
+  `audit_log` kayıtları (EP'nin `RULE_EVALUATION`/`DISPATCH_CREATED`/`ACTION_APPLIED` + CPB'nin
+  `CPB_*`) aynı tabloda, doğru sırayla, birlikte doğrulandı.
+- **C8.3** (gerçek OCP deploy'u) — **kullanıcı kararıyla bu turun kapsamı dışında bırakıldı**,
+  yapılmadı.
+- Fortify/Mend/Sonar tarama entegrasyonu — hâlâ yapılmadı (bkz. `pipeline.yml` içindeki not).
 
 ---
 
@@ -110,10 +128,15 @@ Fortify/Mend/Sonar tarama entegrasyonu.
   (`SUCCEEDED`/`FAILED`) AI Agent'ı **TEKRAR ÇAĞIRMAZ** — yalnızca dispatch'i o sonuca göre
   senkronlar. (İlk implementasyonda bu kontrol yoktu; reprocess senaryosunda gereksiz bir AI
   çağrısı yaptığı Docker simülasyonunda yakalandı ve düzeltildi.)
-- [ ] **C5.4 — `relatedParty[role=assignee]` (açık madde, §14-S9)**: ticket'ı hangi insana geri
-  atayacağımız (Hüseyin) bilgisi EP'nin `ticket` şemasında yok (`previous_human_assignee_id` alanı
-  gerekiyor — EP tarafında küçük bir değişiklik). Şimdilik yalnızca `note[]` yazılıyor, assignee
-  değişikliği İÇERMİYOR.
+- [x] **C5.4 — `relatedParty[role=assignee]` (§14-S9, artık ÇÖZÜLDÜ, 2026-09-04)**: EP'ye
+  `ticket.previous_human_assignee_id`/`_name` alanları eklendi (EP reposu, commit `d2a7c37`, V5
+  migration) — `AssigneeDetectorRule` (R4), assignee'yi AI hesabıyla üzerine yazmadan önce bu
+  alanları event'in gerçek `prevAssignee`'sinden doldurur. CPB'nin `Ticket` entity'si bu alanları
+  okur, `ActionInboxWriter` `requiresApproval=true` VE `previousHumanAssigneeId` doluysa
+  `relatedParty[role=assignee]`'yi payload'a ekler. Unit test + entegrasyon senaryosunda
+  doğrulandı. **Not:** şu an aktif olan GEÇİCİ R4 koşulu (EP commit `af5fcec`) yalnızca
+  `prevAssignee==null` iken tetiklendiği için bu alan pratikte hâlâ boş kalıyor — hedef R4 koşulu
+  geri açılınca (DCase hesabı oluşunca) gerçek değer taşımaya başlayacak.
 
 ## EPIC C6 — Denetim İzi ve Gözlemlenebilirlik
 
@@ -121,30 +144,41 @@ Fortify/Mend/Sonar tarama entegrasyonu.
   (`CPB_DISPATCH_CLAIMED`, `CPB_AI_CALL_SUCCEEDED`, `CPB_AI_CALL_FAILED`, `CPB_INBOX_WRITTEN`,
   `CPB_SKIPPED_KILL_SWITCH`, `CPB_MAX_ITERATIONS_REACHED`) — **ep-frontend dashboard'ında ek
   geliştirme olmadan görünür** (aynı tablo).
-  ⚠️ `CPB_DISPATCH_CLAIMED` kategorisi tanımlı ama şu an hiçbir yerden çağrılmıyor (yalnızca
-  `CLAIMED` sonrası claim log'u var, audit_log'a yazılmıyor) — küçük bir eksik, C7'de/sonraki bir
-  turda eklenebilir.
+  ⚠️ ~~`CPB_DISPATCH_CLAIMED` hiçbir yerden çağrılmıyor~~ — **düzeltildi**: `DispatchProcessingService`
+  ticket'i okuduğu anda artık bu kategoriyle audit_log'a yazıyor.
 - [x] **C6.2 — `ai_process`/`ai_interaction` kaydı**: her tur özeti + her HTTP denemesinin ham izi
   (istek/yanıt **kayıpsız**, kırpma YOK — kırpma yalnızca EP'nin `NoteTruncator`'ında).
-- [ ] **C6.3 — Metrikler (Micrometer)**: `cpb_dispatch_claimed_total`,
+- [x] **C6.3 — Metrikler (Micrometer)**: `CpbMetrics` — `cpb_dispatch_claimed_total`,
   `cpb_ai_call_duration_seconds`, `cpb_ai_call_failures_total`, `cpb_inbox_written_total`,
-  `cpb_pending_dispatch_gauge` — tasarım planı §11'de tanımlı, HENÜZ YAZILMADI.
-- [ ] **C6.4 — MDC doldurma**: `logback-spring.xml`'deki MDC anahtarları tanımlı ama kod tarafında
-  hiçbir yerde `MDC.put(...)` çağrılmıyor — loglar şu an structured JSON ama korelasyon alanları boş.
+  `cpb_pending_dispatch` (gauge, `countByStatus` ile — **`FOR UPDATE SKIP LOCKED` sorgusuyla DEĞİL**,
+  ilk taslakta bu hata vardı, satır kilitleyeceği için düzeltildi). `/actuator/prometheus`'tan
+  otomatik export edilir.
+- [x] **C6.4 — MDC doldurma**: `DispatchProcessingService.process()` artık `dispatchId`/
+  `correlationId`'yi hemen, `dcaseTicketId`/`version`/`iteration`'ı elde edilir edilmez `MDC.put`
+  ile doldurur, `finally` bloğunda temizler.
 
-## EPIC C7 — Testler (HENÜZ BAŞLANMADI)
+## EPIC C7 — Testler
 
-- [ ] **C7.1 — Unit testler**: `DispatchClaimService`, `ActionInboxWriter` (karar tablosu:
-  R4/R5+NO_ACTION_NEEDED/R5+devam/max-iterations), `ContextRequestMapper` (context_json → istek
-  alanları), `AiAgentClientImpl` (retry sayısı, her denemenin loglandığı), `FlowGuard`.
-- [ ] **C7.2 — Entegrasyon testleri (Testcontainers PostgreSQL + WireMock)**: TC-C1 mutlu yol
-  (dispatch→fetch→inbox), TC-C2 AI 5xx→retry→FAILED, TC-C3 timeout, TC-C4 claim-timeout reaper,
-  TC-C5 arada `CANCELLED`/`OBSOLETE` olan dispatch atlanıyor, TC-C6 `source_message_id` çakışması
-  idempotent, TC-C7 kill-switch'ler (`FLOW_AI_CALL_ENABLED=false` → dispatch PENDING'e döner),
-  TC-C8 max-iterations kapanışı, TC-C9 zaten SUCCEEDED bir process tekrar AI çağırmıyor (C5.3'ün
-  regresyon testi — **bu, gerçek sahada bulunan bir bug'ı temsil ediyor, mutlaka yazılmalı**).
-- [ ] **C7.3 — Jacoco %90 kapısı**: `mvn clean verify` ile doğrulanmalı (şu an yalnızca `compile`
-  denendi, hiç test yok — coverage %0).
+- [x] **C7.1 — Unit testler (32/32 yeşil)**: `FlowGuardTest`, `DispatchClaimServiceTest`,
+  `DispatchProcessingServiceTest` (mutlu yol, kill-switch, AI hata, max-iterations, **C5.3
+  regresyon testi — zaten SUCCEEDED/FAILED bir sürecin AI'ı tekrar çağırmadığını doğrular**),
+  `ActionInboxWriterTest` (karar tablosu + `relatedParty` var/yok senaryoları + idempotency),
+  `ContextRequestMapperTest`, `AiAgentClientImplTest` (gerçek WireMock ile retry senaryoları).
+- [x] **C7.2 — Entegrasyon testleri (Testcontainers PostgreSQL + WireMock) — KOD YAZILDI**:
+  `AbstractIntegrationTest` + `DispatchProcessingIntegrationTest` (TC-C1 mutlu yol, TC-C2 AI
+  sürekli 5xx→FAILED, TC-C6 idempotent reprocessing) + `KillSwitchIntegrationTest` (TC-C7).
+  ⚠️ **Bu oturumun sandbox'ında ÇALIŞTIRILAMADI**: Docker-outside-of-Docker denendi
+  (`docker.sock` mount edilebiliyor, proje dizini bind-mount edilemiyor — sandbox kısıtı), ama
+  Testcontainers'ın Ryuk sidecar'ına ağ erişimi kurulamadı (`Could not connect to Ryuk at
+  localhost:PORT`) — container-içi JVM'in, host daemon'un başlattığı sibling container'ların
+  portlarına erişememesi. **EP'nin kendi CI'sinin aynı sebeple** ("bu self-hosted runner'da Docker
+  soketi yok") entegrasyon testlerini atladığı kısıtın birebir aynısı. Kullanıcının kendi
+  teriminalinde (gerçek Docker Desktop, bind-mount kısıtı yok) ya da Docker soketi olan bir CI
+  runner'da `mvn clean verify` ile sorunsuz çalışması beklenir — test edilmedi ama kod EP'nin
+  kendi entegrasyon test desenini birebir izliyor.
+- [ ] **C7.3 — Jacoco %90 kapısı**: `mvn clean test` (yalnızca unit) ile ölçülmedi — entegrasyon
+  testleri de dahil olmadan gerçek coverage oranı bilinmiyor; `mvn clean verify`'ın kullanıcının
+  kendi ortamında çalıştırılması gerekiyor.
 
 ## EPIC C8 — Uçtan Uca ve Deploy
 
@@ -152,14 +186,27 @@ Fortify/Mend/Sonar tarama entegrasyonu.
   V1'i aynı şemada) + WireMock (Didar'ın AI Agent'ı yerine) + CPB imajı — tam zincir (claim→AI
   çağrısı→ai_process/ai_interaction→ai_action_inbox→dispatch kapanışı→audit_log) ve idempotency
   canlı doğrulandı (2026-09-04).
-- [ ] **C8.2 — EP ile birlikte tam simülasyon**: gerçek Kafka + gerçek EP + CPB + WireMock (DCase +
-  AI Agent) — EP'nin R4'ü gerçekten `ai_dispatch` yazıp CPB'nin onu claim ettiği, sonucun EP'nin
-  `ActionInboxPoller`'ı tarafından DCase'e (WireMock) PATCH edildiği tam döngü. (EP tarafında bu
-  altyapı zaten kuruldu — bkz. EP reposundaki bu oturumun önceki turları — CPB eklenerek tekrar
-  edilebilir.)
-- [ ] **C8.3 — OCP TEST deploy'u**: `k8s/configmap.yaml`/`configmap-flow.yaml`/`secret.yaml` ilk
-  kurulumda elle `oc apply`; `AI_AGENT_BASE_URL` gerçek (ya da AI ekibinin sağladığı bir test)
-  adresle doldurulmalı; pipeline `development`/`main`'e push ile tetiklenir.
+- [x] **C8.2 — EP ile birlikte tam simülasyon (2026-09-04, TAMAMLANDI) — bu projenin en önemli
+  doğrulaması**: gerçek Kafka (KRaft tek node) + gerçek EP (V1-V5 migration'ları) + gerçek CPB +
+  2 WireMock (DCase + AI Agent) aynı ağda. Gerçek fixture event'leri (`src/test/resources/events/
+  5,6,7.json`, EP reposundan) Kafka'ya basıldı:
+  - E5→E6: EP R3→R4, `ai_dispatch(PENDING)` yazıldı → **CPB claim etti** → AI Agent'a gerçek HTTP
+    çağrısı → `ai_action_inbox` (TMF621 `note[]`, `requiresApproval=true`) → **EP'nin
+    `ActionInboxPoller`'ı** aldı, R7 versiyon kontrolü geçti, gerçek DCase PATCH çağrısı (WireMock,
+    200) → `APPLIED` → `TICKET.status=WAITING_APPROVAL`. Tüm bunlar **~8 saniyede, tamamen
+    otomatik**.
+  - E7 (yorum, WAITING_APPROVAL iken): EP R5 → yeni context/dispatch (v2) → CPB 2. tur
+    (`iteration=2`) → AI Agent bu kez `NO_ACTION_NEEDED` döndü (WireMock stub'ı değiştirilerek
+    test edildi) → `ai_action_inbox` (`requiresApproval=false`) → EP uyguladı →
+    `TICKET.status=COMPLETED`.
+  - EP'nin (`RULE_EVALUATION`/`DISPATCH_CREATED`/`ACTION_APPLIED`) ve CPB'nin (`CPB_DISPATCH_CLAIMED`/
+    `CPB_AI_CALL_SUCCEEDED`/`CPB_INBOX_WRITTEN`) `audit_log` kayıtları **aynı tabloda, doğru
+    kronolojik sırayla** birlikte doğrulandı — iki bağımsız mikroservisin paylaşılan Postgres
+    üzerinden (K2) gerçekten çalıştığının ilk somut kanıtı.
+- [ ] **C8.3 — OCP TEST deploy'u — KULLANICI KARARIYLA BU TURUN KAPSAMI DIŞINDA** (2026-09-04):
+  "gerçek ocp deployu hariç her şeyi yapmamız lazım" — `k8s/configmap.yaml`/`configmap-flow.yaml`/
+  `secret.yaml` ilk kurulumda elle `oc apply`; `AI_AGENT_BASE_URL` gerçek (ya da AI ekibinin
+  sağladığı bir test) adresle doldurulmalı; pipeline `development`/`main`'e push ile tetiklenir.
 - [ ] **C8.4 — README**: çalıştırma/config/kill-switch özeti (EP'nin N3'üyle aynı boşluk, orada da
   hâlâ yazılmadı).
 

@@ -1,6 +1,7 @@
 package com.vodafone.genaiops.cpb.repository;
 
 import com.vodafone.genaiops.cpb.entity.AiDispatch;
+import com.vodafone.genaiops.cpb.enums.DispatchStatus;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -8,6 +9,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface AiDispatchRepository extends JpaRepository<AiDispatch, Long> {
+
+    /** Metrik/gauge amaçlı — {@code FOR UPDATE SKIP LOCKED} KULLANMAZ, satır kilitlemez. */
+    long countByStatus(DispatchStatus status);
 
     /**
      * PENDING isleri claim etmek icin: {@code FOR UPDATE SKIP LOCKED} sayesinde birden fazla CPB
