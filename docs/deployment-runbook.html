@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>core-processing-backend — Deployment Runbook</title>
+<style>
+  :root {
+    --ink: #12161d;
+    --paper: #f5f2ea;
+    --paper-raised: #ffffff;
+    --slate: #5b6472;
+    --slate-soft: #838d9a;
+    --line: rgba(91, 100, 114, 0.20);
+    --line-strong: rgba(91, 100, 114, 0.36);
+    --copper: #b5601e;
+    --copper-strong: #94480f;
+    --copper-wash: rgba(181, 96, 30, 0.10);
+    --ok: #2f7d52;
+    --ok-wash: rgba(47, 125, 82, 0.12);
+    --warn: #a3721f;
+    --warn-wash: rgba(163, 114, 31, 0.14);
+    --crit: #b23f3f;
+    --crit-wash: rgba(178, 63, 63, 0.10);
+    --code-bg: #1b2029;
+    --code-fg: #dfe4ea;
+    --code-accent: #e2a468;
+    --shadow: 0 1px 2px rgba(18, 22, 29, 0.04), 0 8px 24px -12px rgba(18, 22, 29, 0.18);
+    --radius: 10px;
+    --font-display: -apple-system, "SF Pro Display", "Segoe UI Semibold", "Helvetica Neue", Arial, sans-serif;
+    --font-body: -apple-system, "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #eef0f3;
+      --paper: #14181f;
+      --paper-raised: #1b212b;
+      --slate: #9aa4b2;
+      --slate-soft: #6f7887;
+      --line: rgba(154, 164, 178, 0.16);
+      --line-strong: rgba(154, 164, 178, 0.30);
+      --copper: #e2a468;
+      --copper-strong: #f0bb87;
+      --copper-wash: rgba(226, 164, 104, 0.12);
+      --ok: #5cbb8a;
+      --ok-wash: rgba(92, 187, 138, 0.14);
+      --warn: #d9ad5c;
+      --warn-wash: rgba(217, 173, 92, 0.14);
+      --crit: #e08080;
+      --crit-wash: rgba(224, 128, 128, 0.14);
+      --code-bg: #0d1015;
+      --code-fg: #e4e8ee;
+      --code-accent: #e2a468;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.24), 0 8px 28px -12px rgba(0, 0, 0, 0.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #eef0f3;
+    --paper: #14181f;
+    --paper-raised: #1b212b;
+    --slate: #9aa4b2;
+    --slate-soft: #6f7887;
+    --line: rgba(154, 164, 178, 0.16);
+    --line-strong: rgba(154, 164, 178, 0.30);
+    --copper: #e2a468;
+    --copper-strong: #f0bb87;
+    --copper-wash: rgba(226, 164, 104, 0.12);
+    --ok: #5cbb8a;
+    --ok-wash: rgba(92, 187, 138, 0.14);
+    --warn: #d9ad5c;
+    --warn-wash: rgba(217, 173, 92, 0.14);
+    --crit: #e08080;
+    --crit-wash: rgba(224, 128, 128, 0.14);
+    --code-bg: #0d1015;
+    --code-fg: #e4e8ee;
+    --code-accent: #e2a468;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.24), 0 8px 28px -12px rgba(0, 0, 0, 0.55);
+  }
+  :root[data-theme="light"] {
+    --ink: #12161d;
+    --paper: #f5f2ea;
+    --paper-raised: #ffffff;
+    --slate: #5b6472;
+    --slate-soft: #838d9a;
+    --line: rgba(91, 100, 114, 0.20);
+    --line-strong: rgba(91, 100, 114, 0.36);
+    --copper: #b5601e;
+    --copper-strong: #94480f;
+    --copper-wash: rgba(181, 96, 30, 0.10);
+    --ok: #2f7d52;
+    --ok-wash: rgba(47, 125, 82, 0.12);
+    --warn: #a3721f;
+    --warn-wash: rgba(163, 114, 31, 0.14);
+    --crit: #b23f3f;
+    --crit-wash: rgba(178, 63, 63, 0.10);
+    --code-bg: #1b2029;
+    --code-fg: #dfe4ea;
+    --code-accent: #e2a468;
+    --shadow: 0 1px 2px rgba(18, 22, 29, 0.04), 0 8px 24px -12px rgba(18, 22, 29, 0.18);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15.5px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--copper-strong); }
+  ::selection { background: var(--copper-wash); }
+
+  .page { max-width: 1180px; margin: 0 auto; padding: 0 24px 96px; }
+
+  .masthead {
+    position: relative;
+    padding: 56px 0 40px;
+    border-bottom: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .masthead::before {
+    content: "";
+    position: absolute;
+    inset: 0 -24px auto auto;
+    top: -40px;
+    width: 520px;
+    height: 260px;
+    background:
+      repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 46px),
+      repeating-linear-gradient(0deg, var(--line) 0 1px, transparent 1px 46px);
+    -webkit-mask-image: radial-gradient(closest-side, black, transparent 75%);
+    mask-image: radial-gradient(closest-side, black, transparent 75%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--copper);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 14px;
+  }
+  .eyebrow .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--copper);
+    box-shadow: 0 0 0 3px var(--copper-wash);
+  }
+  h1.title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(28px, 4vw, 40px);
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+    max-width: 22ch;
+  }
+  .subtitle {
+    color: var(--slate);
+    font-size: 16px;
+    max-width: 56ch;
+    margin: 0 0 24px;
+  }
+  .route-chain {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--slate);
+  }
+  .route-chain .node {
+    padding: 5px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: var(--paper-raised);
+  }
+  .route-chain .arrow { color: var(--slate-soft); }
+
+  .layout { display: grid; grid-template-columns: 232px 1fr; gap: 48px; margin-top: 40px; align-items: start; }
+  @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
+
+  .rail { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 2px; }
+  @media (max-width: 880px) {
+    .rail { position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  }
+  .rail-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--slate-soft); margin: 0 0 10px 12px; }
+  @media (max-width: 880px) { .rail-title { display: none; } }
+  .rail a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--slate);
+    font-size: 13.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .rail a:hover { background: var(--paper-raised); border-color: var(--line); color: var(--ink); }
+  .rail a .n { font-family: var(--font-mono); color: var(--slate-soft); font-size: 12px; }
+  .progress-pill {
+    margin: 14px 12px 0;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--slate-soft);
+  }
+  @media (max-width: 880px) { .progress-pill { display: none; } }
+
+  .content { min-width: 0; }
+
+  .phase { margin-bottom: 56px; scroll-margin-top: 20px; }
+  .phase-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 22px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .phase-head h2 {
+    font-family: var(--font-display);
+    font-size: 21px;
+    font-weight: 700;
+    margin: 0;
+  }
+  .phase-tag {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--slate-soft);
+  }
+  .phase-note {
+    font-size: 14px;
+    color: var(--slate);
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--copper);
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    margin: 0 0 22px;
+  }
+  .phase-note strong { color: var(--ink); }
+  .phase-note.warn { border-left-color: var(--warn); }
+  .phase-note.warn strong { color: var(--warn); }
+
+  .step {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .step-head {
+    display: grid;
+    grid-template-columns: 22px 34px 1fr auto;
+    align-items: start;
+    gap: 14px;
+    padding: 18px 20px;
+  }
+  .step-check {
+    margin-top: 4px;
+    width: 17px; height: 17px;
+    accent-color: var(--ok);
+    cursor: pointer;
+  }
+  .step-num {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--copper);
+    background: var(--copper-wash);
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-head h3 { font-family: var(--font-display); font-size: 16.5px; font-weight: 650; margin: 2px 0 4px; text-wrap: balance; }
+  .step-sub { margin: 0; color: var(--slate); font-size: 14px; }
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+    align-self: start;
+    margin-top: 4px;
+  }
+  .badge-auto { background: var(--ok-wash); color: var(--ok); }
+  .badge-manual { background: var(--warn-wash); color: var(--warn); }
+
+  .step-body { padding: 0 20px 20px 66px; }
+  @media (max-width: 560px) { .step-body { padding-left: 20px; } }
+  .step-body > * + * { margin-top: 14px; }
+  .step-body p { margin: 0; color: var(--ink); }
+  .step-body ul, .step-body ol { margin: 0; padding-left: 20px; }
+  .step-body li + li { margin-top: 6px; }
+
+  .code-block {
+    background: var(--code-bg);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .code-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(223, 228, 234, 0.5);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .copy-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--code-accent);
+    background: rgba(226, 164, 104, 0.10);
+    border: 1px solid rgba(226, 164, 104, 0.25);
+    border-radius: 6px;
+    padding: 3px 9px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .copy-btn:hover { background: rgba(226, 164, 104, 0.18); }
+  .copy-btn:focus-visible, a:focus-visible, .rail a:focus-visible, .step-check:focus-visible {
+    outline: 2px solid var(--copper);
+    outline-offset: 2px;
+  }
+  .copy-btn.copied { color: var(--ok); border-color: var(--ok); background: var(--ok-wash); }
+  .code-block pre {
+    margin: 0;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 12.8px;
+    line-height: 1.65;
+    color: var(--code-fg);
+  }
+  .code-block code .k { color: var(--code-accent); }
+  .code-block code .c { color: rgba(223, 228, 234, 0.42); font-style: italic; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table.manifests { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 13.5px; }
+  table.manifests th {
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--slate-soft);
+    font-weight: 600;
+    padding: 10px 14px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line-strong);
+    position: sticky; top: 0;
+  }
+  table.manifests td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    font-variant-numeric: tabular-nums;
+  }
+  table.manifests tr:last-child td { border-bottom: none; }
+  table.manifests tr:hover td { background: var(--copper-wash); }
+  table.manifests .ord { font-family: var(--font-mono); color: var(--copper); font-weight: 700; }
+  table.manifests .file { font-family: var(--font-mono); font-size: 12.6px; color: var(--ink); }
+  table.manifests .fill code, .var-table code { font-family: var(--font-mono); font-size: 12px; background: var(--copper-wash); color: var(--copper-strong); padding: 1px 5px; border-radius: 4px; }
+  table.manifests .flag { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .flag-caution { background: var(--crit-wash); color: var(--crit); }
+  .flag-none { color: var(--slate-soft); }
+
+  .var-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .var-grid { grid-template-columns: 1fr; } }
+  .var-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .var-table caption {
+    text-align: left; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--slate-soft); padding-bottom: 8px; caption-side: top;
+  }
+  .var-table td { padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .var-table td:last-child { color: var(--slate); text-align: right; padding-left: 10px; }
+
+  .callout {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 14px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .callout .mark { font-family: var(--font-mono); font-weight: 700; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; flex-shrink: 0; margin-top: 1px; }
+  .callout.caution { background: var(--crit-wash); }
+  .callout.caution .mark { background: var(--crit); color: var(--paper-raised); }
+  .callout.info { background: var(--copper-wash); }
+  .callout.info .mark { background: var(--copper); color: var(--paper-raised); }
+  .callout.warn { background: var(--warn-wash); }
+  .callout.warn .mark { background: var(--warn); color: var(--paper-raised); }
+  .callout p { margin: 0; color: var(--ink); }
+  .callout code { font-family: var(--font-mono); font-size: 12.5px; background: rgba(0,0,0,0.06); padding: 1px 5px; border-radius: 4px; }
+
+  .verify-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .verify-item {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .verify-item .label { font-size: 13px; font-weight: 650; margin-bottom: 4px; }
+  .verify-item .where { font-family: var(--font-mono); font-size: 11.5px; color: var(--slate-soft); }
+  .verify-item .expect { font-size: 13px; color: var(--ok); margin-top: 8px; display: flex; gap: 6px; align-items: baseline; }
+  .verify-item .expect::before { content: "✓"; font-weight: 700; }
+
+  footer.foot {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--slate-soft);
+    font-family: var(--font-mono);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .copy-btn { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow"><span class="dot"></span> Deployment Runbook &middot; v1 &middot; 4 Eylül 2026</p>
+    <h1 class="title">core&#8209;processing&#8209;backend'i test OpenShift'e çıkarma</h1>
+    <p class="subtitle">İlk GHES clone'undan CI/CD tetiklemesine kadar sırayla uygulanacak adımlar. CPB, EP'nin (genaiops&#8209;event&#8209;processor) zaten deployda olduğu aynı namespace'e ikinci bir servis olarak eklenir — DB kimlik bilgisi ve namespace altyapısı EP'den miras alınır, tekrar kurulmaz. AI Agent (Didar ekibi) URL'i henüz gerçek olmasa da bu akışın tamamı uygulanabilir.</p>
+    <div class="route-chain">
+      <span class="node">00 Hazırlık</span><span class="arrow">→</span>
+      <span class="node">01 İmaj</span><span class="arrow">→</span>
+      <span class="node">02 Deploy</span><span class="arrow">→</span>
+      <span class="node">03 Doğrula</span><span class="arrow">→</span>
+      <span class="node">04 AI Agent aç</span><span class="arrow">→</span>
+      <span class="node">05 Senaryo</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="rail" aria-label="Bölümler">
+      <p class="rail-title">Bölümler</p>
+      <a href="#setup"><span class="n">00</span> Hazırlık</a>
+      <a href="#build"><span class="n">01</span> İmajı derle &amp; yayımla</a>
+      <a href="#deploy"><span class="n">02</span> OpenShift'e deploy et</a>
+      <a href="#verify"><span class="n">03</span> Altyapıyı doğrula</a>
+      <a href="#aiagent"><span class="n">04</span> AI Agent'ı aç</a>
+      <a href="#scenario"><span class="n">05</span> Fonksiyonel senaryo</a>
+      <a href="#trouble"><span class="n">06</span> Sorun giderme</a>
+      <p class="progress-pill" id="progressPill">0 / 0 adım işaretli</p>
+    </nav>
+
+    <main class="content">
+
+      <!-- ============ PHASE 0 ============ -->
+      <section class="phase" id="setup">
+        <div class="phase-head">
+          <span class="phase-tag">00</span>
+          <h2>Hazırlık</h2>
+        </div>
+        <p class="phase-note">Bu bölüm yalnızca <strong>bir kez</strong> yapılır. Sonraki her deploy doğrudan Faz 01'den başlar.</p>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p0s1" aria-label="Adım tamamlandı">
+            <span class="step-num">1</span>
+            <div>
+              <h3>Repoyu GHES'e taşı (ilk clone)</h3>
+              <p class="step-sub">Bu repo şu an yalnızca github.com/bbatus/core-processing-backend'de. EP ile aynı akış: GHES (github.vpara.local) tarafında yeni bir repo açılıp içerik oraya taşınır.</p>
+            </div>
+            <span class="badge badge-manual">Elle</span>
+          </div>
+          <div class="step-body">
+            <p>GHES'te <code>core-processing-backend</code> adında boş bir repo oluşturun (organizasyon: EP'nin bulunduğu aynı org). Ardından bu makineden:</p>
+            <div class="code-block">
+              <div class="code-head"><span>GHES'i ikinci remote olarak ekle ve pushla</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>cd ~/Documents/Projects/core-processing-backend
+git remote add ghes git@github.vpara.local:&lt;org&gt;/core-processing-backend.git
+git remote -v
+
+git push ghes main</code></pre>
+            </div>
+            <div class="callout info">
+              <span class="mark">SSH zaten kuruluysa</span>
+              <p>EP için daha önce SSH anahtarı oluşturduysanız (<code>~/.ssh/id_ed25519</code>) aynı anahtar GHES için de kullanılabilir — GHES hesabınıza aynı açık anahtarı <a href="#">Settings → SSH and GPG keys</a>'ten ekleyin. Yeniden anahtar üretmenize gerek yok.</p>
+            </div>
+            <div class="callout caution">
+              <span class="mark">.github/workflows/ push kısıtı</span>
+              <p>GitHub/GHES, <code>.github/workflows/</code> altındaki dosyaların salt HTTPS+PAT ile (token'da <code>workflow</code> scope'u yoksa) push edilmesini reddeder. SSH ile push ederken bu kısıt yoktur — yukarıdaki komut bu yüzden SSH remote kullanıyor.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p0s2" aria-label="Adım tamamlandı">
+            <span class="step-num">2</span>
+            <div>
+              <h3>GHES Actions secrets/vars &amp; runner erişimi — DOĞRULA</h3>
+              <p class="step-sub">EP'nin pipeline.yml'i çalışıyor diye CPB'ninki de otomatik çalışacağı garanti DEĞİL — bu, bu runbook'un yazıldığı ortamdan doğrulanamayan tek adımdır.</p>
+            </div>
+            <span class="badge badge-manual">Elle — kontrol şart</span>
+          </div>
+          <div class="step-body">
+            <div class="callout caution">
+              <span class="mark">Neden garanti değil</span>
+              <p>EP'nin <code>pipeline.yml</code>'i <code>vars.OPENSHIFT_SERVER_TST</code>, <code>secrets.OPENSHIFT_TEST_PASSWORD</code>, <code>secrets.REGISTRY_LOGIN_TOKEN</code>, <code>secrets.SONAR_TOKEN</code>, <code>secrets.FORTIFY_TOKEN</code>, <code>secrets.MEND_PROXY_PASSWORD</code> gibi değerleri okuyor. Bunlar GHES'te <strong>Organizasyon</strong> seviyesinde tanımlıysa (ve bu repo'yla paylaşılıyorsa) otomatik gelir. <strong>Repo</strong> seviyesinde yalnızca EP'ye özel tanımlandıysa, CPB'de bunlar boş gelir ve ilgili job (build-and-deploy, mend-scan, fortify-scan, sonar-scan) ilk çalıştırmada patlar.</p>
+            </div>
+            <p>GHES web arayüzünden kontrol edin: <strong>Organization Settings → Secrets and variables → Actions</strong> — aşağıdaki isimlerin "Repository access" listesinde <code>core-processing-backend</code>'in de olduğunu (ya da "All repositories" seçili olduğunu) doğrulayın.</p>
+            <div class="var-grid">
+              <table class="var-table">
+                <caption>Variables</caption>
+                <tr><td><code>OPENSHIFT_SERVER_TST</code></td><td>org</td></tr>
+                <tr><td><code>OPENSHIFT_TEST_USER</code></td><td>org</td></tr>
+                <tr><td><code>OPENSHIFT_PROJECT_AD</code></td><td>org (aynı namespace: vepas-ai-am)</td></tr>
+                <tr><td><code>REGISTRY_LOGIN_USERNAME</code></td><td>org</td></tr>
+              </table>
+              <table class="var-table">
+                <caption>Secrets</caption>
+                <tr><td><code>OPENSHIFT_TEST_PASSWORD</code></td><td>org</td></tr>
+                <tr><td><code>REGISTRY_LOGIN_TOKEN</code></td><td>org</td></tr>
+                <tr><td><code>SONAR_TOKEN</code> / <code>FORTIFY_TOKEN</code> / <code>MEND_PROXY_PASSWORD</code></td><td>org</td></tr>
+              </table>
+            </div>
+            <p>Ayrıca self-hosted runner grupları (<code>githubrunner</code>, <code>MENDPROJECT-Vepas</code>, <code>fortify</code>) bu yeni repo'ya atanmış runner grubunda mı — <strong>Organization Settings → Actions → Runner groups</strong>'tan kontrol edin.</p>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p0s3" aria-label="Adım tamamlandı">
+            <span class="step-num">3</span>
+            <div>
+              <h3>Ön koşulları doğrula</h3>
+              <p class="step-sub">EP zaten aynı namespace'te (vepas-ai-am) çalışıyorsa bu adımın çoğu zaten sağlanmıştır.</p>
+            </div>
+            <span class="badge badge-auto">Doğrula</span>
+          </div>
+          <div class="step-body">
+            <div class="callout info">
+              <span class="mark">Ayrı bir DB kullanıcısı/yetkisi YOK</span>
+              <p>CPB, DB bağlantı bilgilerini <strong>EP'nin zaten sahip olduğu</strong> <code>genaiops-event-processor-config</code>/<code>-secret</code>'ten alır (<code>envFrom</code>, bkz. <code>k8s/deployment.yaml</code>). EP bu DB'ye bağlanabiliyorsa CPB de bağlanabilir — Faz 00 Adım 3'te EP için yapılan <code>psql</code>/CREATE-yetkisi kontrolünü <strong>tekrarlamanıza gerek yok</strong>.</p>
+            </div>
+            <div class="callout info">
+              <span class="mark">Image pull secret zaten var</span>
+              <p><code>k8s/serviceaccount.yaml</code>, EP için daha önce oluşturulmuş <code>vodafone-githubtest</code> imagePullSecret'ını referans alır (aynı registry, aynı namespace). <strong>Yeniden oluşturmanıza gerek yok.</strong></p>
+            </div>
+            <div class="verify-grid">
+              <div class="verify-item">
+                <div class="label">EP namespace'te çalışıyor mu</div>
+                <div class="where"><code>oc get pods -l app=genaiops-event-processor</code></div>
+                <div class="expect">Running olmalı</div>
+              </div>
+              <div class="verify-item">
+                <div class="label">EP'nin config/secret'ı mevcut mu</div>
+                <div class="where"><code>oc get configmap genaiops-event-processor-config</code></div>
+                <div class="expect">bulunmalı</div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p0s4" aria-label="Adım tamamlandı">
+            <span class="step-num">4</span>
+            <div>
+              <h3>CPB'ye özgü config/flow/secret'ı OpenShift'te oluştur</h3>
+              <p class="step-sub">Bu 3 kaynak <strong>pipeline tarafından asla uygulanmaz</strong> — bir kez elle oluşturulur, bağımsız yaşarlar (EP'deki aynı kural).</p>
+            </div>
+            <span class="badge badge-manual">Elle</span>
+          </div>
+          <div class="step-body">
+            <div class="code-block">
+              <div class="code-head"><span>a) ConfigMap + kill-switch ConfigMap</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>oc login https://api.tst-vcloud.vpara.local:6443 -u srvc.vpara.vpaitst
+oc project vepas-ai-am
+
+oc apply -f k8s/configmap.yaml
+oc apply -f k8s/configmap-flow.yaml</code></pre>
+            </div>
+            <div class="callout warn">
+              <span class="mark">AI_AGENT_BASE_URL şu an placeholder</span>
+              <p><code>k8s/configmap.yaml</code>'daki <code>AI_AGENT_BASE_URL: "https://CHANGE_ME.example.internal/api/v1"</code> değeri Didar ekibinin gerçek URL'i gelene kadar <strong>olduğu gibi bırakılabilir</strong> — bu deploy'u ENGELLEMEZ. Liveness/readiness AI Agent'a hiç dokunmaz, yalnızca DB'ye bakar. Tek etkisi: <code>FLOW_AI_CALL_ENABLED=true</code> kalırsa her dispatch denemesinde 3 kez başarısız HTTP çağrısı + log gürültüsü olur — bkz. Adım 7'deki öneri (<code>FLOW_AI_CALL_ENABLED=false</code> ile başlatın).</p>
+            </div>
+            <div class="code-block">
+              <div class="code-head"><span>b) Secret — yalnızca 1 değer (AI_AGENT_API_KEY)</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code># Gercek deger yoksa (Didar henuz vermedi) gecici bos/dummy bir deger yeterli —
+# FLOW_AI_CALL_ENABLED=false oldugu surece hic kullanilmaz.
+AI_AGENT_API_KEY="dummy-not-yet-provided" envsubst &lt; k8s/secret.yaml | oc apply -f -</code></pre>
+            </div>
+            <div class="callout info">
+              <span class="mark">DB_PASSWORD burada YOK</span>
+              <p><code>k8s/secret.yaml</code> kasıtlı olarak yalnızca <code>AI_AGENT_API_KEY</code> içerir — DB kimlik bilgisi EP'nin <code>genaiops-event-processor-secret</code>'ından gelir (K2, tek DB kimliği).</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ PHASE 1 ============ -->
+      <section class="phase" id="build">
+        <div class="phase-head">
+          <span class="phase-tag">01</span>
+          <h2>İmajı derle &amp; yayımla</h2>
+        </div>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p1s1" aria-label="Adım tamamlandı">
+            <span class="step-num">5</span>
+            <div>
+              <h3>Push et, Actions'ı izle</h3>
+              <p class="step-sub">Her push <code>build-test-scan</code>'i (+ paralel <code>mend-scan</code>/<code>fortify-scan</code>/<code>sonar-scan</code>) çalıştırır; imaj + deploy yalnızca <code>development</code>/<code>main</code> ya da <code>v*</code> tag'inde.</p>
+            </div>
+            <span class="badge badge-auto">Otomatik</span>
+          </div>
+          <div class="step-body">
+            <div class="code-block">
+              <div class="code-head"><span>bash</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>git push ghes main</code></pre>
+            </div>
+            <ul>
+              <li><strong>build-test-scan</strong> — <code>mvn -B clean test -Dtest='!*IntegrationTest'</code>; Testcontainers testleri (2026-09-04'te gerçek Docker'da 53/53 yeşil doğrulandı) CI'da <strong>çalışmaz</strong> — self-hosted runner'da Docker soketi yok, EP'deki aynı kısıt.</li>
+              <li><strong>mend-scan / fortify-scan / sonar-scan</strong> — EP'den kopyalanan reusable workflow'lar; <code>fortify_blocker="0"</code>/<code>sonar_blocker="false"</code>, yani bulgu bulsalar bile pipeline'ı henüz kırmazlar.</li>
+              <li><strong>build-and-deploy</strong> — imajı derler, <code>containers.github.vpara.local</code>'e pushlar, ardından OpenShift'e deploy eder.</li>
+            </ul>
+            <div class="callout warn">
+              <span class="mark">İlk çalıştırmada asıl risk</span>
+              <p>Faz 00 Adım 2'yi atlamadıysanız buraya kadar gelmiş olmanız, GHES secrets/runner erişiminin sorunsuz olduğu anlamına gelir. Atladıysanız ve iş burada patlarsa önce oradan başlayın — kodla ilgisi olmayabilir.</p>
+            </div>
+            <div class="code-block">
+              <div class="code-head"><span>image ref biçimi</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>containers.github.vpara.local/<span class="k">&lt;repository_owner&gt;</span>/core-processing-backend:<span class="k">&lt;commit sha&gt;</span></code></pre>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ PHASE 2 ============ -->
+      <section class="phase" id="deploy">
+        <div class="phase-head">
+          <span class="phase-tag">02</span>
+          <h2>OpenShift'e deploy et</h2>
+        </div>
+        <p class="phase-note">Faz 00 Adım 4 tamamsa pipeline bu fazı <strong>kendiliğinden</strong> yapar. Aşağıdaki komutlar, ilk deploy'u elle takip etmek ya da pipeline dışında ilerlemek isteyenler için. <strong>Redis/MinIO adımı YOK</strong> — CPB bunların hiçbirine bağlanmaz, EP'den daha basit bir deploy.</p>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p2s1" aria-label="Adım tamamlandı">
+            <span class="step-num">6</span>
+            <div>
+              <h3>Yapısal kaynakları uygula</h3>
+              <p class="step-sub">ServiceAccount, Service, HPA — bağımlılığı yok, sıra önemsiz.</p>
+            </div>
+            <span class="badge badge-manual">Elle</span>
+          </div>
+          <div class="step-body">
+            <div class="code-block">
+              <div class="code-head"><span>bash</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>oc apply -f k8s/serviceaccount.yaml
+oc apply -f k8s/service.yaml
+oc apply -f k8s/hpa.yaml</code></pre>
+            </div>
+            <div class="callout info">
+              <span class="mark">Route yok</span>
+              <p>CPB dışarıdan erişilmez (yalnızca EP ↔ CPB paylaşılan Postgres üzerinden konuşur) — <code>k8s/service.yaml</code> <code>ClusterIP</code> tipinde, bir <code>route.yaml</code> yok. Bu kasıtlı.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p2s2" aria-label="Adım tamamlandı">
+            <span class="step-num">7</span>
+            <div>
+              <h3>Uygulamayı deploy et</h3>
+              <p class="step-sub">Önerilen ilk profil: <strong>AI çağrısı kapalı.</strong> AI Agent URL'i gerçek olana kadar gereksiz retry/log gürültüsünü önler.</p>
+            </div>
+            <span class="badge badge-manual">Elle</span>
+          </div>
+          <div class="step-body">
+            <div class="callout warn">
+              <span class="mark">İlk deploy'dan önce bu bayrağı kapatın</span>
+              <p><code>k8s/configmap-flow.yaml</code>'da <code>FLOW_AI_CALL_ENABLED</code> varsayılan <code>"true"</code> geliyor. AI Agent URL'i henüz placeholder ise (Adım 4'teki not) deploy'dan önce şunu çalıştırın — pod zaten sorunsuz ayağa kalkar, bu yalnızca gereksiz iş yapılmasını önler:</p>
+            </div>
+            <div class="code-block">
+              <div class="code-head"><span>bash — AI çağrısını geçici kapat</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>oc patch configmap core-processing-backend-flow --type merge \
+  -p '{"data":{"FLOW_AI_CALL_ENABLED":"false"}}'</code></pre>
+            </div>
+            <div class="code-block">
+              <div class="code-head"><span>bash — deploy</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>IMAGE_REF=containers.github.vpara.local/&lt;owner&gt;/core-processing-backend:&lt;sha&gt; \
+  envsubst &lt; k8s/deployment.yaml | oc apply -f -
+
+oc rollout status deployment/core-processing-backend --timeout=300s
+oc logs -f deploy/core-processing-backend</code></pre>
+            </div>
+            <p>Açılış loglarında görmeniz gerekenler:</p>
+            <div class="verify-grid">
+              <div class="verify-item">
+                <div class="label">Flyway</div>
+                <div class="where">CPB'nin kendi migration'ı</div>
+                <div class="expect">Successfully applied 1 migration (flyway_schema_history_cpb)</div>
+              </div>
+              <div class="verify-item">
+                <div class="label">Poller</div>
+                <div class="where">DispatchPollerScheduler</div>
+                <div class="expect">hata yok, periyodik log</div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ PHASE 3 ============ -->
+      <section class="phase" id="verify">
+        <div class="phase-head">
+          <span class="phase-tag">03</span>
+          <h2>Altyapıyı doğrula</h2>
+        </div>
+        <p class="phase-note">AI çağrısı kapalıyken yapılabilecek her şey — Didar'ın URL'i beklenmeden tamamlanır.</p>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p3s1" aria-label="Adım tamamlandı">
+            <span class="step-num">8</span>
+            <div>
+              <h3>Smoke kontrol listesi</h3>
+              <p class="step-sub">Route yok — kontroller pod içinden ya da <code>oc exec</code>/port-forward ile yapılır.</p>
+            </div>
+            <span class="badge badge-auto">Doğrula</span>
+          </div>
+          <div class="step-body">
+            <div class="code-block">
+              <div class="code-head"><span>bash — port-forward ile health/metrics</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>oc get pods -l app=core-processing-backend -o wide
+
+oc port-forward deploy/core-processing-backend 8083:8083 &amp;
+
+curl -s "http://localhost:8083/actuator/health/liveness"
+curl -s "http://localhost:8083/actuator/health/readiness"
+curl -s "http://localhost:8083/actuator/prometheus" | grep -E "cpb_(dispatch_claimed|ai_call_failures|inbox_written|pending_dispatch)"</code></pre>
+            </div>
+            <table class="manifests">
+              <thead><tr><th>#</th><th>Kontrol</th><th>Beklenen</th></tr></thead>
+              <tbody>
+                <tr><td class="file">1</td><td>Pod durumu</td><td class="fill">1 pod, <code>Running</code>, <code>READY 1/1</code></td></tr>
+                <tr><td class="file">2</td><td>Liveness</td><td class="fill"><code>{"status":"UP"}</code></td></tr>
+                <tr><td class="file">3</td><td>Readiness</td><td class="fill"><code>UP</code> — AI Agent'a hiç bakmaz, yalnızca DB</td></tr>
+                <tr><td class="file">4</td><td>Flyway şeması</td><td class="fill"><code>ai_process</code> + <code>ai_interaction</code> + <code>flyway_schema_history_cpb</code></td></tr>
+                <tr><td class="file">5</td><td>EP'nin tabloları BOZULMADI</td><td class="fill"><code>ticket</code>/<code>ai_dispatch</code>/<code>ai_action_inbox</code> aynı, satır sayısı değişmedi</td></tr>
+                <tr><td class="file">6</td><td>Prometheus scrape</td><td class="fill"><code>cpb_*</code> metrikleri geliyor</td></tr>
+                <tr><td class="file">7</td><td>Kill-switch fonksiyonel</td><td class="fill"><code>FLOW_ENABLED=false</code> → restart → poller durur → geri aç</td></tr>
+              </tbody>
+            </table>
+            <div class="code-block">
+              <div class="code-head"><span>şema kontrolü</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>psql "host=172.31.229.152 port=5432 dbname=vepasgenaiops_test user=vepasgenaiopstest_user" \
+  -c "\dt" \
+  -c "SELECT version, description, success FROM flyway_schema_history_cpb ORDER BY installed_rank;"
+
+# Beklenen: ai_process, ai_interaction (+ flyway_schema_history_cpb, AYRI history — EP'ninkiyle
+# cakismaz). EP'nin 8 tablosu (ticket, ticket_event, ticket_context, attachment, api_audit,
+# ai_dispatch, ai_action_inbox, audit_log) burada DEGISMEZ.</code></pre>
+            </div>
+            <div class="callout info">
+              <span class="mark">Ayrı flyway history tablosu neden önemli</span>
+              <p><code>spring.flyway.table=flyway_schema_history_cpb</code> — EP'nin <code>flyway_schema_history</code>'siyle karışmaz. CPB'nin migration'ı yalnızca kendi 2 tablosunu oluşturur; <code>baseline-on-migrate=true</code> + <code>baseline-version=0</code> sayesinde EP'nin zaten doldurmuş olduğu şemaya karşı sorunsuz "baseline" alır.</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ PHASE 4 ============ -->
+      <section class="phase" id="aiagent">
+        <div class="phase-head">
+          <span class="phase-tag">04</span>
+          <h2>AI Agent'ı aç (Didar'ın URL'i geldiğinde)</h2>
+        </div>
+        <p class="phase-note warn"><strong>Bu faz bekletilebilir.</strong> Faz 00-03 tamamlanmış CPB, AI Agent olmadan da OCP'de sağlıklı, boşta bekleyen bir pod olarak durur. Bu faz yalnızca gerçek URL elinize geçtiğinde uygulanır.</p>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p4s1" aria-label="Adım tamamlandı">
+            <span class="step-num">9</span>
+            <div>
+              <h3>Gerçek URL'i ve API key'i yaz, bayrağı aç</h3>
+              <p class="step-sub">3 komut, pod restart gerektirir.</p>
+            </div>
+            <span class="badge badge-manual">Elle</span>
+          </div>
+          <div class="step-body">
+            <div class="code-block">
+              <div class="code-head"><span>bash</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>oc patch configmap core-processing-backend-config --type merge \
+  -p '{"data":{"AI_AGENT_BASE_URL":"&lt;Didar-ekibinin-verdigi-gercek-URL&gt;"}}'
+
+AI_AGENT_API_KEY="&lt;gercek-key&gt;" envsubst &lt; k8s/secret.yaml | oc apply -f -
+
+oc patch configmap core-processing-backend-flow --type merge \
+  -p '{"data":{"FLOW_AI_CALL_ENABLED":"true"}}'
+
+oc rollout restart deployment/core-processing-backend
+oc rollout status deployment/core-processing-backend --timeout=300s
+oc logs -f deploy/core-processing-backend</code></pre>
+            </div>
+            <div class="callout info">
+              <span class="mark">Auth şeması netleşmediyse (§14-S3)</span>
+              <p><code>AiAgentClientImpl</code> API key'i <code>Authorization: Bearer &lt;key&gt;</code> header'ıyla gönderir (varsayım). Didar ekibi farklı bir şema (örn. özel header adı) isterse kodda tek satırlık bir değişiklik gerekir — bu runbook'un kapsamı dışı, `CPB_TASARIM_VE_GELISTIRME_PLANI` §14 açık sorular listesine bakın.</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ PHASE 5 ============ -->
+      <section class="phase" id="scenario">
+        <div class="phase-head">
+          <span class="phase-tag">05</span>
+          <h2>Fonksiyonel senaryo</h2>
+        </div>
+        <p class="phase-note">EP zaten çalışıp gerçek bir R4 dispatch'i ürettiyse en doğal test budur. Gerçek bir R4 event'i beklemek istemiyorsanız aşağıdaki gibi elle bir <code>ai_dispatch</code> satırı seed edip de test edebilirsiniz (Docker simülasyonunda kullanılan aynı yöntem).</p>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p5s1" aria-label="Adım tamamlandı">
+            <span class="step-num">10</span>
+            <div>
+              <h3>Uçtan uca doğrulama</h3>
+              <p class="step-sub">EP'nin ürettiği (ya da elle seed edilen) bir dispatch'in CPB tarafından claim edilip AI Agent'a gittiğini, sonucun <code>ai_action_inbox</code>'a yazıldığını, EP'nin bunu alıp DCase'e uyguladığını izleyin.</p>
+            </div>
+            <span class="badge badge-auto">Doğrula</span>
+          </div>
+          <div class="step-body">
+            <div class="code-block">
+              <div class="code-head"><span>izleme sorguları</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>-- CPB claim etti mi, tamamlandı mı
+SELECT id, status, claimed_by, claimed_at FROM ai_dispatch ORDER BY id DESC LIMIT 5;
+
+-- AI cagrisinin izi
+SELECT * FROM ai_process ORDER BY id DESC LIMIT 5;
+SELECT * FROM ai_interaction ORDER BY id DESC LIMIT 5;
+
+-- CPB'nin uretttigi oneri EP'ye ulasti mi
+SELECT id, action_type, status, requires_approval FROM ai_action_inbox ORDER BY id DESC LIMIT 5;
+
+-- Iki servisin denetim izi birlikte (dogru sirada mi)
+SELECT category, dcase_ticket_id, created_at FROM audit_log ORDER BY created_at DESC LIMIT 20;</code></pre>
+            </div>
+            <div class="callout info">
+              <span class="mark">Referans</span>
+              <p>Bu akışın tamamı 2026-09-02'de Docker'da (gerçek Kafka + gerçek Postgres + 2 WireMock) uçtan uca kanıtlandı — R4 önerisi → R5 human-feedback turu → kapanış, ~8 saniyede tamamlanmıştı. OCP'de aynı akışı görmeniz beklenir.</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- ============ PHASE 6 ============ -->
+      <section class="phase" id="trouble">
+        <div class="phase-head">
+          <span class="phase-tag">06</span>
+          <h2>Sorun giderme</h2>
+        </div>
+
+        <article class="step">
+          <div class="step-head">
+            <input type="checkbox" class="step-check" data-key="p6s1" aria-label="Adım tamamlandı">
+            <span class="step-num">11</span>
+            <div>
+              <h3>Sık karşılaşılan hatalar</h3>
+              <p class="step-sub">Semptom → muhtemel sebep → çözüm.</p>
+            </div>
+            <span class="badge badge-auto">Referans</span>
+          </div>
+          <div class="step-body">
+            <table class="manifests">
+              <thead><tr><th>Semptom</th><th>Sebep</th><th>Çözüm</th></tr></thead>
+              <tbody>
+                <tr><td class="file">Pod <code>CreateContainerConfigError</code>, "configmap genaiops-event-processor-config not found"</td><td>EP bu namespace'te henüz deploy edilmemiş</td><td class="fill">Önce EP'yi deploy edin — CPB, EP'nin config/secret'ına bağımlı (Faz 00 Adım 3)</td></tr>
+                <tr><td class="file">Pod <code>ImagePullBackOff</code></td><td><code>vodafone-githubtest</code> secret'ı bu namespace'te yok</td><td class="fill">EP deploy'unda zaten oluşturulmuş olmalı; yoksa EP'nin runbook'undaki Adım 6 notuna bakın</td></tr>
+                <tr><td class="file">Pod <code>CrashLoopBackOff</code>, log'da Flyway hatası</td><td>EP'nin <code>public</code> şema CREATE yetkisi bir şekilde geri alınmış</td><td class="fill">DBA — aynı yetki EP için de gerekliydi, muhtemelen ortam geneli bir sorun</td></tr>
+                <tr><td class="file">Readiness DOWN</td><td>PG'ye ağ erişimi yok</td><td class="fill">EP zaten bağlanabiliyorsa ağ sorunu değildir — pod'un doğru namespace/servis hesabında olduğunu kontrol edin</td></tr>
+                <tr><td class="file">Loglarda sürekli "AI Agent cagrisi basarisiz" (3 deneme)</td><td><code>AI_AGENT_BASE_URL</code> hâlâ placeholder / gerçek servis henüz yok</td><td class="fill">Beklenen davranış — Faz 04'e kadar <code>FLOW_AI_CALL_ENABLED=false</code> verin</td></tr>
+                <tr><td class="file"><code>ai_action_inbox</code>'a hiç yazılmıyor ama AI çağrısı başarılı görünüyor</td><td><code>FLOW_INBOX_WRITE_ENABLED=false</code></td><td class="fill"><code>configmap-flow.yaml</code>'ı kontrol edin</td></tr>
+                <tr><td class="file">Flyway "non-empty schema, no history table"</td><td>CPB ilk kez bu şemaya karşı çalışıyor ama <code>baseline-on-migrate</code> bir şekilde kapalı</td><td class="fill"><code>application-ocp.yml</code>'de <code>flyway.baseline-on-migrate=true</code> + <code>baseline-version=0</code> olduğunu doğrulayın</td></tr>
+              </tbody>
+            </table>
+            <div class="code-block">
+              <div class="code-head"><span>Genel teşhis</span><button class="copy-btn" type="button">Kopyala</button></div>
+              <pre><code>oc get pods -l app=core-processing-backend
+oc describe pod -l app=core-processing-backend | tail -30
+oc logs deploy/core-processing-backend --tail=200
+oc logs deploy/core-processing-backend --previous --tail=100   # crash öncesi
+
+# Uygulamanın gördüğü config
+oc set env deploy/core-processing-backend --list | sort</code></pre>
+            </div>
+          </div>
+        </article>
+      </section>
+
+    </main>
+  </div>
+
+  <footer class="foot">
+    <span>core-processing-backend — deployment runbook v1</span>
+    <span id="footStamp"></span>
+  </footer>
+</div>
+<script>
+  (function () {
+    document.getElementById('footStamp').textContent = 'oluşturuldu ' + new Date().toLocaleDateString('tr-TR');
+
+    document.querySelectorAll('.copy-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var block = btn.closest('.code-block');
+        var code = block ? block.querySelector('pre code, pre') : null;
+        var text = code ? code.textContent : '';
+        navigator.clipboard.writeText(text).then(function () {
+          var original = btn.textContent;
+          btn.textContent = 'Kopyalandı';
+          btn.classList.add('copied');
+          setTimeout(function () {
+            btn.textContent = original;
+            btn.classList.remove('copied');
+          }, 1400);
+        });
+      });
+    });
+
+    var checks = Array.prototype.slice.call(document.querySelectorAll('.step-check'));
+    var STORE_KEY = 'cpb-runbook-progress';
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) {}
+
+    function updateProgress() {
+      var done = checks.filter(function (c) { return c.checked; }).length;
+      document.getElementById('progressPill').textContent = done + ' / ' + checks.length + ' adım işaretli';
+    }
+
+    checks.forEach(function (c) {
+      var key = c.getAttribute('data-key');
+      if (saved[key]) c.checked = true;
+      c.addEventListener('change', function () {
+        saved[key] = c.checked;
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(saved)); } catch (e) {}
+        updateProgress();
+      });
+    });
+    updateProgress();
+  })();
+</script>
+</body>
+</html>

@@ -150,6 +150,8 @@ oc apply -f k8s/                 # OCP deploy (CD pipeline yapar — configmap/f
 task.md          → görev kırılımı + güncel durum özeti
 CLAUDE.md        → bu dosya
 README.md        → proje tanıtımı, build/run/test/deploy how-to
+docs/deployment-runbook.html → adım adım ilk-kurulum + OCP deploy + smoke doğrulama kılavuzu
+                     (EP'nin runbook'uyla aynı format) — GHES clone'dan CI/CD tetiklemesine kadar
 src/…            → kod (com.vodafone.genaiops.cpb)
 k8s/…             → OCP manifest'leri (serviceaccount/service/deployment/hpa otomatik;
                      configmap/configmap-flow/secret İLK KURULUMDA ELLE)

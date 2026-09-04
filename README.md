@@ -88,6 +88,10 @@ deploy'unda `FLOW_AI_CALL_ENABLED=false` verilmesi önerilir; gerçek URL gelinc
 
 ## Deploy (OpenShift)
 
+**Adım adım ilk-kurulum rehberi:** [docs/deployment-runbook.html](docs/deployment-runbook.html) —
+GHES'e ilk clone/push'tan, CI/CD tetiklemesine, `oc apply` komutlarına ve smoke doğrulamaya kadar
+tüm adımlar (EP'nin kendi runbook'uyla aynı format).
+
 CI/CD (`​.github/workflows/pipeline.yml`) `development`/`main`/`v*` push'larında imajı build edip
 OCP'ye deploy eder (ServiceAccount/Service/HPA/Deployment otomatik). **İlk kurulumda elle** (pipeline
 asla dokunmaz, config drift/kill-switch riski):
