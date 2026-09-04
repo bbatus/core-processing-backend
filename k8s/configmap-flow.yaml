@@ -1,0 +1,16 @@
+# K3 deseni (EP ile ayni): kill-switch'ler baglanti/davranis config'inden AYRI bir ConfigMap'te —
+# acil bir "durdur" ihtiyacinda yanlislikla baska bir degeri de degistirme riski olmasin diye.
+# Pipeline tarafindan UYGULANMAZ (EP'deki ayni kural).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: core-processing-backend-flow
+  labels: { app: core-processing-backend }
+data:
+  FLOW_ENABLED: "true"
+  FLOW_CPB_POLL_ENABLED: "true"
+  FLOW_AI_CALL_ENABLED: "true"
+  FLOW_INBOX_WRITE_ENABLED: "true"
+  # Faz 3'e kadar KAPALI kalmali (bkz. TASARIM_PLANI §6.3/§2) — AI'in aksiyonu fiilen uygulamasi
+  # (confirm-status) Faz 2 kapsam disi.
+  FLOW_AI_CONFIRM_ENABLED: "false"

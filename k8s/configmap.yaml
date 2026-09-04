@@ -1,0 +1,31 @@
+# CPB'ye ozgu konfigurasyon — DB baglanti bilgileri BURADA DEGIL, EP'nin zaten sahip oldugu
+# genaiops-event-processor-config'ten gelir (K2, paylasilan Postgres). Bu ConfigMap yalnizca
+# AI Agent (Didar ekibi) baglantisi ve dispatch/iterasyon davranisini icerir.
+#
+# ⚠️ EP'deki AYNI kural: bu dosya pipeline tarafindan UYGULANMAZ — ilk kurulumda BIR KERE elle
+# `oc apply -f k8s/configmap.yaml`, sonra pipeline bir daha dokunmaz (config drift/kill-switch
+# riskini onlemek icin).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: core-processing-backend-config
+  labels: { app: core-processing-backend }
+data:
+  SPRING_PROFILES_ACTIVE: "ocp"
+
+  # Ayni namespace'teki (vepas-ai-am) EP'nin paylasilan semasi — DB_HOST/PORT/NAME/USERNAME/SCHEMA
+  # genaiops-event-processor-config'ten gelir, burada TEKRAR TANIMLANMAZ.
+
+  # ⚠️ AI ekibinden (Didar) rehber gelince gercek deger buraya yazilacak — bkz.
+  # CPB_TASARIM_VE_GELISTIRME_PLANI §14-S1..S7.
+  AI_AGENT_BASE_URL: "https://CHANGE_ME.example.internal/api/v1"
+  AI_AGENT_FETCH_PATH: "/solutions/fetch"
+  AI_AGENT_CONFIRM_PATH: "/solutions/confirm-status"
+  AI_TIMEOUT_SECONDS: "180"
+  AI_MAX_ATTEMPTS: "3"
+  AI_MAX_ITERATIONS: "5"
+  AI_NOTE_AUTHOR: "GenAI Ops"
+
+  DISPATCH_POLL_INTERVAL_MS: "2000"
+  DISPATCH_BATCH_SIZE: "5"
+  DISPATCH_CLAIM_TIMEOUT_MINUTES: "15"

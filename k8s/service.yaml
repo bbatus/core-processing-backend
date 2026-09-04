@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-processing-backend
+  labels: { app: core-processing-backend }
+spec:
+  type: ClusterIP
+  selector: { app: core-processing-backend }
+  ports: [ { name: http, port: 8083, targetPort: http } ]

@@ -1,0 +1,15 @@
+<configuration>
+  <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+      <includeMdcKeyName>dcaseTicketId</includeMdcKeyName>
+      <includeMdcKeyName>dispatchId</includeMdcKeyName>
+      <includeMdcKeyName>version</includeMdcKeyName>
+      <includeMdcKeyName>iteration</includeMdcKeyName>
+      <includeMdcKeyName>correlationId</includeMdcKeyName>
+    </encoder>
+  </appender>
+  <root level="INFO">
+    <appender-ref ref="JSON"/>
+  </root>
+  <logger name="com.vodafone.genaiops" level="${LOG_LEVEL_APP:-INFO}"/>
+</configuration>

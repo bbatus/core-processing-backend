@@ -1,0 +1,170 @@
+# genaiops-event-processor (EP) reposundaki pipeline.yml ile AYNI yapi/adimlar/yorum uslubu —
+# bu, ayrı bir repo oldugu icin (EP'nin ep-frontend'i gibi bir monorepo alt-dizini DEGIL) path
+# filtresi gerekmiyor, EP'nin kok pipeline.yml'inin BIREBIR muadili.
+name: CI/CD
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch: {}
+
+env:
+  APP_NAME: core-processing-backend
+  NODE_EXTRA_CA_CERTS: /etc/pki/tls/certs/ca-bundle.crt
+  # EP ile AYNI OpenShift TEST ortami/namespace (vepas-ai-am) — ikinci bir servis olarak ayni
+  # namespace'e deploy edilir. Degerler ayni Organizasyon Variables/Secrets'tan gelir.
+  OPENSHIFT_SERVER: ${{ vars.OPENSHIFT_SERVER_TST }}
+  OPENSHIFT_TEST_USER: ${{ vars.OPENSHIFT_TEST_USER }}
+  OPENSHIFT_TEST_PASSWORD: ${{ secrets.OPENSHIFT_TEST_PASSWORD }}
+  OPENSHIFT_NAMESPACE: ${{ vars.OPENSHIFT_PROJECT_AD }}
+  REGISTRY_URL: containers.github.vpara.local
+
+jobs:
+  build-test-scan:
+    name: Build, Test & Scan
+    runs-on: githubrunner
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Install Maven
+        shell: bash
+        run: |
+          set -e
+          if command -v mvn >/dev/null 2>&1; then
+            echo "Maven zaten kurulu: $(mvn -v | head -1)"
+            exit 0
+          fi
+          MAVEN_VERSION=3.9.9
+          curl -fsSL "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+            -o "${RUNNER_TEMP}/maven.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/maven.tar.gz" -C "${RUNNER_TEMP}"
+          echo "${RUNNER_TEMP}/apache-maven-${MAVEN_VERSION}/bin" >> "${GITHUB_PATH}"
+          "${RUNNER_TEMP}/apache-maven-${MAVEN_VERSION}/bin/mvn" -v
+
+      # EP'deki ayni gerekce: entegrasyon testleri (Testcontainers) bu self-hosted runner'da Docker
+      # soketi olmadigi icin CI'da kosmaz — yalnizca unit testler + jacoco RAPORU (kapi verify'da).
+      - name: Build & Test (unit)
+        run: mvn -B clean test -Dtest='!*IntegrationTest' -DfailIfNoTests=false
+
+      - name: Upload test reports
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-reports
+          path: target/surefire-reports
+
+      # FORTIFY / MEND / SONARQUBE: EP'nin pipeline.yml'inde bunlar organizasyonun paylasilan
+      # reusable workflow'lariyla (./.github/workflows/{mend,fortify,sonar}.yml) calisiyor — o
+      # dosyalar EP reposunda yasiyor, BU repoda YOK (yeni, ayri bir repo). CLAUDE.md'nin kendi
+      # kuraliyla tutarli sekilde (guvenlik tarama placeholder'larini TAHMIN ETMEDEN doldurma) burayi
+      # BOS birakiyorum. Ekip icin iki secenek:
+      #   a) EP'deki 3 dosyayi (mend.yml/fortify.yml/sonar.yml) bu repoya da kopyalamak, VEYA
+      #   b) cross-repo reusable workflow olarak cagirmak (org izinlerine bagli, DOGRULANMADI):
+      #        mend-scan:
+      #          uses: bbatus/genaiops-event-processor/.github/workflows/mend.yml@main
+      #          with: { target_branch: ${{ github.ref_name }}, env_name: vepas-ai-am, project_type: java }
+      #          secrets: inherit
+
+  build-and-deploy:
+    name: Build Image & Deploy to OpenShift (test)
+    runs-on: githubrunner
+    needs: build-test-scan
+    if: >-
+      github.ref == 'refs/heads/development' ||
+      github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - id: img
+        run: echo "image=${{ env.REGISTRY_URL }}/${{ github.repository_owner }}/${{ env.APP_NAME }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Detect container engine
+        id: engine
+        shell: bash
+        run: |
+          set -e
+          if command -v podman >/dev/null 2>&1; then
+            echo "bin=podman" >> "$GITHUB_OUTPUT"; podman --version
+          elif command -v docker >/dev/null 2>&1; then
+            echo "bin=docker" >> "$GITHUB_OUTPUT"; docker --version
+          else
+            echo "::error::Runner'da ne podman ne docker bulundu — imaj build edilemez."
+            exit 1
+          fi
+
+      - name: Log in to Container Registry
+        run: |
+          echo "${{ secrets.REGISTRY_LOGIN_TOKEN }}" | ${{ steps.engine.outputs.bin }} login "${{ env.REGISTRY_URL }}" \
+            -u "${{ vars.REGISTRY_LOGIN_USERNAME }}" --password-stdin
+
+      - name: Build image
+        run: ${{ steps.engine.outputs.bin }} build -t "${{ steps.img.outputs.image }}" -f Containerfile .
+
+      - name: Push image
+        run: ${{ steps.engine.outputs.bin }} push "${{ steps.img.outputs.image }}"
+
+      - name: Ensure OpenShift CLI (oc)
+        shell: bash
+        run: |
+          set -e
+          if command -v oc >/dev/null 2>&1; then
+            echo "oc zaten kurulu: $(oc version --client 2>/dev/null | head -1)"
+            exit 0
+          fi
+          echo "oc bulunamadi, mirror.openshift.com'dan indiriliyor..."
+          curl -fsSL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+            -o "${RUNNER_TEMP}/oc.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/oc.tar.gz" -C "${RUNNER_TEMP}" oc
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+          "${RUNNER_TEMP}/oc" version --client
+
+      - name: Log in to OpenShift
+        run: |
+          oc login "${OPENSHIFT_SERVER}" --insecure-skip-tls-verify=true \
+            -u "${OPENSHIFT_TEST_USER}" -p "${OPENSHIFT_TEST_PASSWORD}"
+          oc project "${OPENSHIFT_NAMESPACE}"
+
+      # ⚠️ EP'deki AYNI kural: ConfigMap'ler (core-processing-backend-config/-flow) ve Secret
+      # (core-processing-backend-secret) BURADA UYGULANMAZ — calisma-zamani konfigurasyonu/kimlik
+      # bilgisi, OpenShift'in sahip oldugu kaynaklar. Ilk kurulumda BIR KERE elle `oc apply` edilir,
+      # pipeline bir daha dokunmaz (kill-switch/config drift riskini onlemek icin).
+      - name: Apply ServiceAccount
+        run: oc apply -f k8s/serviceaccount.yaml
+
+      - name: Apply Service
+        run: oc apply -f k8s/service.yaml
+
+      - name: Apply HPA
+        run: oc apply -f k8s/hpa.yaml || true
+
+      - name: Apply Deployment
+        env:
+          IMAGE_REF: ${{ steps.img.outputs.image }}
+        run: envsubst < k8s/deployment.yaml | oc apply -f -
+
+      - name: Rollout status
+        run: oc rollout status deployment/${APP_NAME} --timeout=300s
+
+      - name: Verify Deployment
+        run: |
+          echo "=== Pods ==="
+          oc get pods -l app=${APP_NAME} -o wide
+          echo ""
+          echo "=== Health ==="
+          echo "actuator/health servis icinden erisilebilir (Route yok - dis erisim gerekmiyor)"

@@ -1,0 +1,62 @@
+# envFrom IKI kaynaktan besleniyor:
+#   1) EP'nin (genaiops-event-processor) ZATEN sahip oldugu genaiops-event-processor-config +
+#      genaiops-event-processor-secret — yalnizca DB_* degerleri icin (K2, paylasilan Postgres,
+#      ikinci bir DB kimlik bilgisi YOK). Bu iki nesne CPB'nin OZEL kaynagi degildir, burada
+#      olusturulmaz.
+#   2) CPB'ye ozgu core-processing-backend-config/-flow/-secret — AI Agent baglantisi + kill-switch.
+# Kafka/Redis/MinIO baglantisi YOK (CPB bunlarin hicbirine baglanmaz).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-processing-backend
+  labels: { app: core-processing-backend }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: core-processing-backend } }
+  template:
+    metadata:
+      labels: { app: core-processing-backend }
+    spec:
+      serviceAccountName: core-processing-backend
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: core-processing-backend
+          image: ${IMAGE_REF}
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          ports: [ { name: http, containerPort: 8083 } ]
+          envFrom:
+            - configMapRef: { name: genaiops-event-processor-config }
+            - secretRef:    { name: genaiops-event-processor-secret }
+            - configMapRef: { name: core-processing-backend-config }
+            - configMapRef: { name: core-processing-backend-flow }
+            - secretRef:    { name: core-processing-backend-secret }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 20
+          resources:
+            requests: { cpu: "150m", memory: "384Mi" }
+            limits:   { cpu: "500m", memory: "768Mi" }
+      volumes:
+        - { name: tmp, emptyDir: {} }
