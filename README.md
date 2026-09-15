@@ -116,8 +116,11 @@ EP'den birebir kopyalandı) `build-test-scan` ile paralel çalışır. `fortify_
 
 Detaylı ve güncel liste için `task.md`'deki "Durum Özeti" bölümüne bakın. Özet:
 
-- Kod, unit+entegrasyon testler (53/53), Sonar (0 bulgu, %92.1 coverage), CI wiring — tamamlandı.
+- Kod, unit+entegrasyon testler (**70/70**), Sonar (0 bulgu), CI wiring — tamamlandı.
+- **AI Agent sözleşmesi 2026-09-15'te Didar ekibinin rehberiyle hizalandı** — tek nested şema, PII
+  maskeleme, `statusResult`/`errorCode`, R5'te `aiSolutionId` geri gönderimi. Gerekçeli analiz:
+  EP reposunda `docs/spec md/CPB_DIDAR_SOZLESME_HIZALAMASI_2026-09-15.md`.
 - **Gerçek AI Agent URL'i henüz yok** (Didar ekibinden bekleniyor) — bu olmadan CPB canlıda hiçbir
   öneri üretemez, sadece bekler; ama bu, servisin OCP'ye deploy edilmesine engel DEĞİLDİR.
-- Gerçek OCP (test) deploy'u henüz yapılmadı (önceki bir turda kullanıcı kararıyla kapsam dışı
-  bırakılmıştı) — kod/config hazır.
+- Gerçek OCP (test) deploy'u henüz yapılmadı — kod/config hazır. İlk deploy'da Flyway `V1`+`V2`'yi
+  arka arkaya kendiliğinden uygular, elle SQL gerekmez.

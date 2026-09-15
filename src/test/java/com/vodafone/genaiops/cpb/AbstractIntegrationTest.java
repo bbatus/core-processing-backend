@@ -140,10 +140,26 @@ public abstract class AbstractIntegrationTest {
                 """, Long.class, ticketId, version, contextId, triggerRule);
     }
 
-    protected void stubAiAgentSuccess(String solutionUniqueid, String solution, String status) {
+    /**
+     * AI Agent'in basarili yaniti — 2026-09-15 sozlesmesi (Didar rehberi §7): {@code aiSolutionId} +
+     * {@code statusResult} + {@code requiresApproval}. Eski {@code solution_uniqueid}/{@code status}
+     * alanlari kaldirildi.
+     */
+    protected void stubAiAgentSuccess(String aiSolutionId, String solution, boolean requiresApproval) {
+        String statusResult = requiresApproval ? "PARTIAL" : "SUCCESS";
         AI_AGENT.stubFor(WireMock.post(WireMock.urlPathEqualTo(fetchPath()))
                 .willReturn(WireMock.okJson("""
-                        {"solution_uniqueid":"%s","solution":"%s","status":"%s"}
-                        """.formatted(solutionUniqueid, solution, status))));
+                        {"aiSolutionId":"%s","solution":"%s","statusResult":"%s","requiresApproval":%s,
+                         "message":"test yaniti","transactionId":"txn-it","syncTime":"2026-09-15T10:00:00Z"}
+                        """.formatted(aiSolutionId, solution, statusResult, requiresApproval))));
+    }
+
+    /** AI'in HTTP 200 ile FAILURE dondugu senaryo (rehber §8) — inbox ACILMAMALI. */
+    protected void stubAiAgentFailure(String errorCode, String message) {
+        AI_AGENT.stubFor(WireMock.post(WireMock.urlPathEqualTo(fetchPath()))
+                .willReturn(WireMock.okJson("""
+                        {"aiSolutionId":null,"solution":null,"statusResult":"FAILURE","errorCode":"%s",
+                         "message":"%s","transactionId":"txn-err","syncTime":"2026-09-15T10:00:00Z"}
+                        """.formatted(errorCode, message))));
     }
 }

@@ -2,83 +2,99 @@ package com.vodafone.genaiops.cpb.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.MissingNode;
-import com.vodafone.genaiops.cpb.dto.AiFetchRequest;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.vodafone.genaiops.cpb.entity.AiDispatch;
 import com.vodafone.genaiops.cpb.entity.Ticket;
 import com.vodafone.genaiops.cpb.entity.TicketContext;
-import java.util.ArrayList;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
- * EP'nin ürettiği {@code ticket_context.context_json}'ını AI Agent'a gönderilecek düz alanlara
- * ayrıştırır (bkz. TASARIM_PLANI §5.2/§6.1). Şema büyürse yalnızca bu sınıf değişir.
+ * EP'nin urettigi {@code ticket_context.context_json}'ini AI Agent istegine cevirir.
+ *
+ * <p><b>⚠️ 2026-09-15'te koklu olarak degisti — "tek sema" duzeltmesi.</b> Onceki surum, ayni istekte
+ * HEM duz (snake_case) alanlari ({@code ticket_id}, {@code main_category}, {@code msisdn} …) HEM de
+ * tum {@code context_json} blogunu gonderiyordu. Didar ekibi bunu hakli olarak "iki farkli sema
+ * paralel yasiyor, validation yapilamiyor" diye raporladi (entegrasyon rehberi §0 bulgu #3, e-posta
+ * madde 2). Artik <b>tek sema</b> gonderiliyor: EP'nin {@code context_json}'i <em>birebir</em>
+ * (nested, {@code schemaVersion}'li — EP zaten boyle uretiyor, bkz. {@code TicketContextPayload}) +
+ * yalnizca CPB'nin bilebilecegi zarf alanlari.</p>
+ *
+ * <p><b>CPB'nin enjekte ettigi alanlar (EP'nin semasina DOKUNULMAZ):</b></p>
+ * <ul>
+ *   <li>{@code traceId} — uctan uca log korelasyonu (rehber §4.1; CPB'nin MDC correlationId'si).</li>
+ *   <li>{@code idempotencyKey} — {@code <dcaseTicketId>:<version>:<iteration>} (rehber e-posta madde
+ *       6; bizim {@code ai_process} tablosundaki tekil anahtarla birebir ayni uclu).</li>
+ *   <li>{@code processing.iteration} — kacinci AI turu.</li>
+ *   <li>{@code processing.aiSolutionId} — R4'te {@code null}, R5/R6'da onceki turun AI oneri
+ *       kimligi. <b>Bu alan bilerek EP'nin semasina EKLENMEDI</b> (Didar "EP semasina eklensin"
+ *       demisti): {@code aiSolutionId} AI↔CPB arasinda bir oturum korelasyon anahtaridir, EP onu ne
+ *       uretir ne kullanir; CPB zaten {@code ai_process.solution_uniqueid}'de saklar. EP'nin
+ *       {@code context_json}'i "ticket'in o anki hali"dir — AI oturum kimligi oraya girerse EP/CPB
+ *       kapsam siniri bulanir (bkz. EP CLAUDE.md §2). Didar alani istedigi yolda ({@code
+ *       processing.aiSolutionId}) gorur, EP semasi temiz kalir.</li>
+ * </ul>
+ *
+ * <p>{@code triggerRule} EP'nin context'inde de var, ancak burada <b>dispatch'inki</b> yazilir —
+ * bu cagriyi tetikleyen operatif kural odur (ikisi normalde ayni; farklilarsa dispatch otoriterdir).</p>
  */
 @RequiredArgsConstructor
 @Component
 public class ContextRequestMapper {
 
+    private static final int FALLBACK_SCHEMA_VERSION = 1;
+
     private final ObjectMapper objectMapper;
 
-    public AiFetchRequest toRequest(Ticket ticket, TicketContext ticketContext, AiDispatch dispatch, int iteration) {
-        JsonNode root = readTree(ticketContext.getContextJson());
-        JsonNode ticketNode = path(root, "ticket");
-        JsonNode categoryNode = path(ticketNode, "category");
-        JsonNode customerNode = path(ticketNode, "customer");
-        JsonNode processingNode = path(root, "processing");
-        String humanFeedback = textOrNull(processingNode, "humanFeedback");
+    /**
+     * @param previousAiSolutionId R5/R6 turunda onceki turun {@code aiSolutionId}'si; R4'te (ilk tur)
+     *                             {@code null}. AI Agent bu alanla hangi oneriden bahsedildigini
+     *                             dogrular (rehber §3 adim 7, "eslesme kontrolu").
+     * @param traceId              uctan uca izleme kimligi (CPB'nin MDC correlationId'si).
+     */
+    public JsonNode toRequest(Ticket ticket, TicketContext ticketContext, AiDispatch dispatch, int iteration,
+            String previousAiSolutionId, String traceId) {
+        ObjectNode root = readContextJson(ticketContext);
 
-        return new AiFetchRequest(
-                ticket.getDcaseTicketId() != null ? ticket.getDcaseTicketId().toString() : null,
-                ticket.getTicketNumber(),
-                dispatch.getVersion(),
-                iteration,
-                dispatch.getTriggerRule() != null ? dispatch.getTriggerRule().name() : null,
-                textOrNull(categoryNode, "product"),
-                textOrNull(categoryNode, "mainCategory"),
-                textOrNull(categoryNode, "subCategory"),
-                textOrNull(ticketNode, "title"),
-                textOrNull(ticketNode, "description"),
-                textOrNull(ticketNode, "phoneNumber"),
-                textOrNull(customerNode, "fullName"),
-                textOrNull(ticketNode, "priority"),
-                humanFeedback,
-                comments(root),
-                root);
+        // EP uretmisse dokunma; uretmemisse (savunma) varsayilani koy.
+        if (!root.hasNonNull("schemaVersion")) {
+            root.put("schemaVersion", FALLBACK_SCHEMA_VERSION);
+        }
+        if (dispatch.getTriggerRule() != null) {
+            root.put("triggerRule", dispatch.getTriggerRule().name());
+        }
+        root.put("traceId", traceId);
+        root.put("idempotencyKey", idempotencyKey(ticket, dispatch, iteration));
+
+        ObjectNode processing = root.withObject("/processing");
+        processing.put("iteration", iteration);
+        if (previousAiSolutionId == null) {
+            processing.putNull("aiSolutionId");
+        } else {
+            processing.put("aiSolutionId", previousAiSolutionId);
+        }
+        return root;
     }
 
-    private JsonNode readTree(String json) {
+    /**
+     * Didar'in onerdigi uclu (e-posta madde 6): {@code ticket_id + version + iteration}. Ayni uclu
+     * bizim {@code ai_process} tablosundaki tekillik kisitiyla ortusur, yani AI tarafinda duplicate
+     * tespiti bizim tarafimizdaki tekrar-isleme korumasiyla ayni sinirlari cizer.
+     */
+    private String idempotencyKey(Ticket ticket, AiDispatch dispatch, int iteration) {
+        return ticket.getDcaseTicketId() + ":" + dispatch.getVersion() + ":" + iteration;
+    }
+
+    private ObjectNode readContextJson(TicketContext ticketContext) {
+        String json = ticketContext == null ? null : ticketContext.getContextJson();
         if (json == null || json.isBlank()) {
-            return MissingNode.getInstance();
+            return objectMapper.createObjectNode();
         }
         try {
-            return objectMapper.readTree(json);
+            JsonNode parsed = objectMapper.readTree(json);
+            return parsed instanceof ObjectNode objectNode ? objectNode : objectMapper.createObjectNode();
         } catch (Exception e) {
-            return MissingNode.getInstance();
+            return objectMapper.createObjectNode();
         }
-    }
-
-    private JsonNode path(JsonNode node, String field) {
-        return node == null ? MissingNode.getInstance() : node.path(field);
-    }
-
-    private String textOrNull(JsonNode node, String field) {
-        if (node == null) {
-            return null;
-        }
-        JsonNode value = node.path(field);
-        return value.isMissingNode() || value.isNull() ? null : value.asText(null);
-    }
-
-    private List<JsonNode> comments(JsonNode root) {
-        List<JsonNode> result = new ArrayList<>();
-        JsonNode comments = path(root, "comments");
-        if (comments instanceof ArrayNode array) {
-            array.forEach(result::add);
-        }
-        return result;
     }
 }

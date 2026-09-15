@@ -6,13 +6,13 @@ import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.vodafone.genaiops.cpb.config.AiProperties;
 import com.vodafone.genaiops.cpb.dto.AiCallResult;
-import com.vodafone.genaiops.cpb.dto.AiFetchRequest;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,14 +50,14 @@ class AiAgentClientImplTest {
     void ilkDenemedeBasarili_TekAttemptDoner() {
         wireMock.stubFor(post(urlPathEqualTo("/api/v1/solutions/fetch"))
                 .willReturn(okJson("""
-                        {"solution_uniqueid":"s1","solution":"cozum","status":"NEEDS_APPROVAL"}
+                        {"aiSolutionId":"s1","solution":"cozum","statusResult":"PARTIAL","requiresApproval":true}
                         """)));
 
         List<AiCallResult> results = client.fetchWithRetries(sampleRequest());
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).success()).isTrue();
-        assertThat(results.get(0).response().solutionUniqueid()).isEqualTo("s1");
+        assertThat(results.get(0).response().aiSolutionId()).isEqualTo("s1");
         assertThat(results.get(0).httpStatus()).isEqualTo(200);
     }
 
@@ -77,7 +77,7 @@ class AiAgentClientImplTest {
                 .inScenario("retry")
                 .whenScenarioStateIs("third")
                 .willReturn(okJson("""
-                        {"solution_uniqueid":"s2","solution":"cozum2","status":"NEEDS_APPROVAL"}
+                        {"aiSolutionId":"s2","solution":"cozum2","statusResult":"PARTIAL","requiresApproval":true}
                         """)));
 
         List<AiCallResult> results = client.fetchWithRetries(sampleRequest());
@@ -86,7 +86,7 @@ class AiAgentClientImplTest {
         assertThat(results.get(0).success()).isFalse();
         assertThat(results.get(1).success()).isFalse();
         assertThat(results.get(2).success()).isTrue();
-        assertThat(results.get(2).response().solutionUniqueid()).isEqualTo("s2");
+        assertThat(results.get(2).response().aiSolutionId()).isEqualTo("s2");
     }
 
     @Test
@@ -104,7 +104,7 @@ class AiAgentClientImplTest {
     void herDenemeIcinRequestBodyJsonDoluGelir() {
         wireMock.stubFor(post(urlPathEqualTo("/api/v1/solutions/fetch"))
                 .willReturn(okJson("""
-                        {"solution_uniqueid":"s3","solution":"c","status":"NEEDS_APPROVAL"}
+                        {"aiSolutionId":"s3","solution":"c","statusResult":"PARTIAL","requiresApproval":true}
                         """)));
 
         List<AiCallResult> results = client.fetchWithRetries(sampleRequest());
@@ -114,8 +114,17 @@ class AiAgentClientImplTest {
                 .withHeader("Content-Type", WireMock.containing(MediaType.APPLICATION_JSON_VALUE)));
     }
 
-    private AiFetchRequest sampleRequest() {
-        return new AiFetchRequest("ticket-123", 79024L, 1, 1, "R4", "Cuzdan", "Iadeler", "Alt kategori",
-                "Baslik", "Aciklama", "9059", "Musteri", "Orta", null, List.of(), null);
+    /** 2026-09-15 tek-sema sozlesmesi: istek artik EP'nin nested context_json'i + CPB zarfi. */
+    private JsonNode sampleRequest() {
+        try {
+            return new ObjectMapper().readTree("""
+                    {"schemaVersion":1,"triggerRule":"R4","traceId":"trace-1",
+                     "idempotencyKey":"ticket-123:1:1",
+                     "ticket":{"dcaseTicketId":"ticket-123","title":"Baslik","phoneNumber":"905551112233"},
+                     "processing":{"version":1,"iteration":1,"aiSolutionId":null}}
+                    """);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

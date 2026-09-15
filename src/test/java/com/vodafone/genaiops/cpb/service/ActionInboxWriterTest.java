@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vodafone.genaiops.cpb.TestResponses;
 import com.vodafone.genaiops.cpb.config.AiProperties;
 import com.vodafone.genaiops.cpb.dto.AiFetchResponse;
 import com.vodafone.genaiops.cpb.entity.AiActionInbox;
@@ -56,7 +57,7 @@ class ActionInboxWriterTest {
 
     @Test
     void r4IlkTurHerZamanOneriVeOnayGerektirir() {
-        AiFetchResponse response = new AiFetchResponse("sol-1", "Cozum metni", "NEEDS_APPROVAL");
+        AiFetchResponse response = TestResponses.proposal("sol-1", "Cozum metni");
 
         AiActionInbox inbox = writer.writeProposal(dispatch, ticket, response, false);
 
@@ -68,7 +69,7 @@ class ActionInboxWriterTest {
     @Test
     void r5AiNoActionNeededDersekapanisOlur() {
         dispatch.setTriggerRule(TriggerRule.R5);
-        AiFetchResponse response = new AiFetchResponse("sol-2", "Ek aksiyon gerekmiyor", "NO_ACTION_NEEDED");
+        AiFetchResponse response = TestResponses.noActionNeeded("sol-2", "Ek aksiyon gerekmiyor");
 
         AiActionInbox inbox = writer.writeProposal(dispatch, ticket, response, false);
 
@@ -77,9 +78,33 @@ class ActionInboxWriterTest {
     }
 
     @Test
+    void requiresApprovalHicGelmezseGUVENLIVARSAYILAN_onayGerekir() {
+        // Faz 2 guvenlik kurali: belirsizlikte insana git, asla kendi basina kapatma.
+        dispatch.setTriggerRule(TriggerRule.R5);
+        AiFetchResponse response = TestResponses.withoutRequiresApproval("sol-7", "Belirsiz yanit");
+
+        AiActionInbox inbox = writer.writeProposal(dispatch, ticket, response, false);
+
+        assertThat(inbox.getActionType()).isEqualTo("PROPOSE_RESOLUTION");
+        assertThat(inbox.isRequiresApproval()).isTrue();
+    }
+
+    @Test
+    void r4HerZamanOnayGerektirir_AIrequiresApprovalFalseDeseBile() {
+        // Didar rehberi §12 senaryo 2'yi BILEREK uygulamiyoruz — gerekce: ActionInboxWriter.decide()
+        // javadoc'u (Faz 2'de ilk tur her zaman insana ugrar). Karar SD/urun onayi bekliyor.
+        AiFetchResponse response = TestResponses.noActionNeeded("sol-8", "Aksiyon gerekmiyor");
+
+        AiActionInbox inbox = writer.writeProposal(dispatch, ticket, response, false);
+
+        assertThat(inbox.getActionType()).isEqualTo("PROPOSE_RESOLUTION");
+        assertThat(inbox.isRequiresApproval()).isTrue();
+    }
+
+    @Test
     void r5StatusBelirsizsePropiseResolutionOlarakDevamEder() {
         dispatch.setTriggerRule(TriggerRule.R5);
-        AiFetchResponse response = new AiFetchResponse("sol-3", "Duzeltilmis oneri", "NEEDS_APPROVAL");
+        AiFetchResponse response = TestResponses.proposal("sol-3", "Duzeltilmis oneri");
 
         AiActionInbox inbox = writer.writeProposal(dispatch, ticket, response, false);
 
@@ -101,7 +126,7 @@ class ActionInboxWriterTest {
         UUID prevId = UUID.randomUUID();
         ticket.setPreviousHumanAssigneeId(prevId);
         ticket.setPreviousHumanAssigneeName("Huseyin Yakut");
-        AiFetchResponse response = new AiFetchResponse("sol-4", "Oneri", "NEEDS_APPROVAL");
+        AiFetchResponse response = TestResponses.proposal("sol-4", "Oneri");
 
         AiActionInbox inbox = writer.writeProposal(dispatch, ticket, response, false);
 
@@ -112,7 +137,7 @@ class ActionInboxWriterTest {
 
     @Test
     void oncekiInsanAssigneeYoksaRelatedPartyEklenmez() {
-        AiFetchResponse response = new AiFetchResponse("sol-5", "Oneri", "NEEDS_APPROVAL");
+        AiFetchResponse response = TestResponses.proposal("sol-5", "Oneri");
 
         AiActionInbox inbox = writer.writeProposal(dispatch, ticket, response, false);
 
@@ -124,7 +149,7 @@ class ActionInboxWriterTest {
         dispatch.setTriggerRule(TriggerRule.R5);
         ticket.setPreviousHumanAssigneeId(UUID.randomUUID());
         ticket.setPreviousHumanAssigneeName("Huseyin Yakut");
-        AiFetchResponse response = new AiFetchResponse("sol-6", "Kapaniyor", "NO_ACTION_NEEDED");
+        AiFetchResponse response = TestResponses.noActionNeeded("sol-6", "Kapaniyor");
 
         AiActionInbox inbox = writer.writeProposal(dispatch, ticket, response, false);
 
@@ -138,7 +163,7 @@ class ActionInboxWriterTest {
         existing.setId(99L);
         when(aiActionInboxRepository.findBySourceMessageId(any())).thenReturn(Optional.of(existing));
 
-        AiActionInbox result = writer.writeProposal(dispatch, ticket, new AiFetchResponse("s", "t", "NEEDS_APPROVAL"),
+        AiActionInbox result = writer.writeProposal(dispatch, ticket, TestResponses.proposal("s", "t"),
                 false);
 
         assertThat(result).isSameAs(existing);
@@ -147,8 +172,8 @@ class ActionInboxWriterTest {
 
     @Test
     void ayniDispatchIciniIdempotentSourceMessageIdUretir() {
-        writer.writeProposal(dispatch, ticket, new AiFetchResponse("s", "t", "NEEDS_APPROVAL"), false);
-        writer.writeProposal(dispatch, ticket, new AiFetchResponse("s2", "t2", "NEEDS_APPROVAL"), false);
+        writer.writeProposal(dispatch, ticket, TestResponses.proposal("s", "t"), false);
+        writer.writeProposal(dispatch, ticket, TestResponses.proposal("s2", "t2"), false);
 
         var captor = org.mockito.ArgumentCaptor.forClass(UUID.class);
         verify(aiActionInboxRepository, times(2)).findBySourceMessageId(captor.capture());

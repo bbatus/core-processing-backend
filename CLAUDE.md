@@ -72,12 +72,28 @@ Containerfile (UBI9) · OpenShift · GitHub Enterprise Actions.
 ## 4. Veri Sözleşmesi Özeti
 
 - **EP → CPB:** `ai_dispatch` (PENDING → CLAIMED → COMPLETED/FAILED), `ticket_context.context_json`.
-- **CPB → AI Agent:** `POST {AI_AGENT_BASE_URL}{fetch-path}` — bkz. tasarım planı §6.1 alan listesi.
+- **CPB → AI Agent:** `POST {AI_AGENT_BASE_URL}{fetch-path}` — **⚠️ 2026-09-15'te Didar ekibinin
+  entegrasyon rehberiyle (REVIZE_2026-09-09) hizalandı, bkz. EP reposundaki
+  `docs/spec md/CPB_DIDAR_SOZLESME_HIZALAMASI_2026-09-15.md`.** Kurallar:
+  - **TEK ŞEMA gönderilir:** EP'nin nested `context_json`'ı **birebir** + CPB zarf alanları
+    (`traceId`, `idempotencyKey`, `processing.iteration`, `processing.aiSolutionId`). Eskiden ayrıca
+    düz snake_case alanlar da gidiyordu — **kaldırıldı, geri eklenmemeli** (Didar'ın "iki paralel
+    şema" bulgusu). Şema büyürse yalnızca `ContextRequestMapper` değişir.
+  - **Yanıt sözleşmesi:** `aiSolutionId`, `solution`, `statusResult` (SUCCESS/PARTIAL/FAILURE),
+    `requiresApproval`, `message`, `transactionId`, `errorCode`, `syncTime`.
+    `statusResult=FAILURE` **HTTP 200 olsa bile** başarısızlıktır → inbox'a kayıt açılmaz.
+    `requiresApproval` boş gelirse **güvenli varsayılan `true`** (insana git).
+  - **`dcaseUpdatePayload` AI'dan BEKLENMEZ** — TMF621 gövdesini yalnızca `ActionInboxWriter` üretir.
 - **CPB → EP:** `ai_action_inbox` INSERT (`source_message_id` UNIQUE = idempotency anahtarı,
   `version` = R7 girdisi — **claim edilen dispatch'in versiyonu aynen kullanılır**).
-- **CPB'nin kendi tabloları:** `ai_process` (tur özeti), `ai_interaction` (ham istek/yanıt, her
-  deneme). Flyway migration'ı yalnızca bunları oluşturur — `flyway.table=flyway_schema_history_cpb`
-  (EP ile aynı şemada AYRI history tablosu, çakışmasın diye).
+- **CPB'nin kendi tabloları:** `ai_process` (tur özeti + AI yanıt metadata'sı: `status_result`/
+  `error_code`/`transaction_id`, V2), `ai_interaction` (istek/yanıt, her deneme). Flyway migration'ı
+  yalnızca bunları oluşturur — `flyway.table=flyway_schema_history_cpb` (EP ile aynı şemada AYRI
+  history tablosu, çakışmasın diye).
+- **⚠️ KVKK:** `ai_interaction.request_body`'ye ve loglara giden gövde **`PayloadMasker` ile
+  maskelenir** (MSISDN/fullName/kimlik no). AI Agent'a giden **gerçek** gövde hamdır — AI, Oracle
+  sorgusu için MSISDN'e ihtiyaç duyar. Maskeleme `AiAgentClientImpl`'de **kaynakta** yapılır; yeni bir
+  denetim kaydı eklerken ham JSON üretmeyin.
 
 **ADR-08 (EP reposundan, burada da geçerli):** iç PK'ler `BIGINT` + explicit `SEQUENCE`
 (`allocationSize=50`). `ai_action_inbox` ve `audit_log`'a INSERT ederken kullanılan sequence'ler

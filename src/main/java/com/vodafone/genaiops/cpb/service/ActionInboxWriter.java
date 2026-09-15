@@ -59,20 +59,31 @@ public class ActionInboxWriter {
         });
     }
 
+    /**
+     * <p><b>2026-09-15 — sozlesme hizalamasi:</b> "ek aksiyon gerekmiyor" karari artik AI'in serbest
+     * {@code status} metninden ({@code "NO_ACTION_NEEDED"}) degil, rehberin §7'sindeki acik
+     * {@code requiresApproval} alanindan okunur ({@link AiFetchResponse#needsApproval()} — alan bos
+     * gelirse GUVENLI TARAF olan {@code true}'ya duser).</p>
+     *
+     * <p><b>R4 neden HER ZAMAN onay gerektirir:</b> Didar'in rehberi §12 senaryo 2'de "R4 direkt
+     * SUCCESS ({@code requiresApproval=false})" diye bir kabul senaryosu var. Bunu BILEREK
+     * uygulamiyoruz: Faz 2'nin temel guvenlik kurali "gercek aksiyonu her zaman bir insan uygular"
+     * (TASARIM_PLANI §2) — ilk turda AI'in ticket'i insana hic ugramadan kapatabilmesi bu kurali
+     * zayiflatir. Bu, urun sahibi/SD onayi gerektiren bir karar; Didar'a acik madde olarak
+     * bildirilecek. R5/R6'da kapanis zaten bir insan dongusunden GECTIKTEN sonra olur, orada AI'in
+     * karari onurlandirilir.</p>
+     */
     private Decision decide(TriggerRule triggerRule, AiFetchResponse aiResponse, boolean maxIterationsReached) {
         if (maxIterationsReached) {
             return new Decision("MAX_ITERATIONS_REACHED", false,
                     "Maksimum AI tur sayısına ulaşıldı, case manuel olarak ele alınmalıdır.");
         }
         String solutionText = aiResponse != null ? aiResponse.solution() : "";
-        boolean noActionNeeded = aiResponse != null && "NO_ACTION_NEEDED".equalsIgnoreCase(aiResponse.status());
 
         if (triggerRule == TriggerRule.R4) {
             return new Decision("PROPOSE_RESOLUTION", true, solutionText);
         }
-        // R5/R6: yalnızca AI acikca "ek aksiyon gerekmiyor" derse kapanis; aksi halde oneri
-        // devam ediyor sayilir (bkz. TASARIM_PLANI §7.4 karar mantigi).
-        if (noActionNeeded) {
+        if (aiResponse != null && !aiResponse.needsApproval()) {
             return new Decision("NO_ACTION_NEEDED", false, solutionText);
         }
         return new Decision("PROPOSE_RESOLUTION", true, solutionText);

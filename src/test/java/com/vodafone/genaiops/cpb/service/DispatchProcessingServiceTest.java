@@ -8,10 +8,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.vodafone.genaiops.cpb.TestResponses;
 import com.vodafone.genaiops.cpb.client.AiAgentClient;
 import com.vodafone.genaiops.cpb.config.AiProperties;
 import com.vodafone.genaiops.cpb.dto.AiCallResult;
-import com.vodafone.genaiops.cpb.dto.AiFetchRequest;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vodafone.genaiops.cpb.dto.AiFetchResponse;
 import com.vodafone.genaiops.cpb.entity.AiActionInbox;
 import com.vodafone.genaiops.cpb.entity.AiDispatch;
@@ -139,9 +141,9 @@ class DispatchProcessingServiceTest {
             }
             return p;
         });
-        AiFetchRequest request = sampleRequest();
-        when(contextRequestMapper.toRequest(ticket, context, dispatch, 1)).thenReturn(request);
-        AiFetchResponse response = new AiFetchResponse("sol-1", "cozum metni", "NEEDS_APPROVAL");
+        JsonNode request = sampleRequest();
+        when(contextRequestMapper.toRequest(eq(ticket), eq(context), eq(dispatch), eq(1), any(), any())).thenReturn(request);
+        AiFetchResponse response = TestResponses.proposal("sol-1", "cozum metni");
         AiCallResult okResult = new AiCallResult("{}", 200, "{}", response, null, 42L);
         when(aiAgentClient.fetchWithRetries(request)).thenReturn(List.of(okResult));
         AiActionInbox inbox = new AiActionInbox();
@@ -177,8 +179,8 @@ class DispatchProcessingServiceTest {
             }
             return p;
         });
-        AiFetchRequest request = sampleRequest();
-        when(contextRequestMapper.toRequest(ticket, context, dispatch, 1)).thenReturn(request);
+        JsonNode request = sampleRequest();
+        when(contextRequestMapper.toRequest(eq(ticket), eq(context), eq(dispatch), eq(1), any(), any())).thenReturn(request);
         AiCallResult failResult = new AiCallResult("{}", 500, null, null, "baglanti hatasi", 10L);
         when(aiAgentClient.fetchWithRetries(request)).thenReturn(List.of(failResult, failResult, failResult));
 
@@ -188,6 +190,103 @@ class DispatchProcessingServiceTest {
         assertThat(dispatch.getErrorMessage()).isEqualTo("baglanti hatasi");
         verify(actionInboxWriter, never()).writeProposal(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
         verify(cpbMetrics).incrementAiCallFailure();
+    }
+
+    @Test
+    void aiHttp200DonseDeStatusResultFAILUREiseDispatchFailedOlurInboxYazilmaz() {
+        // Didar rehberi §8: AI, tasima katmani basarili olsa bile "statusResult=FAILURE" donebilir
+        // (SOLUTION_ID_MISMATCH, SESSION_EXPIRED, AGENT_TIMEOUT...). Yazilacak bir oneri YOKTUR.
+        when(flowGuard.isAiCallEnabled()).thenReturn(true);
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+        when(ticketContextRepository.findById(20L)).thenReturn(Optional.of(context));
+        when(aiProcessRepository.findByDispatchIdAndIteration(1L, 1)).thenReturn(Optional.empty());
+        when(aiProcessRepository.save(any(AiProcess.class))).thenAnswer(inv -> {
+            AiProcess p = inv.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(102L);
+            }
+            return p;
+        });
+        JsonNode request = sampleRequest();
+        when(contextRequestMapper.toRequest(eq(ticket), eq(context), eq(dispatch), eq(1), any(), any()))
+                .thenReturn(request);
+        AiFetchResponse failure = TestResponses.failure("SOLUTION_ID_MISMATCH", "Oneri kimligi eslesmedi.");
+        when(aiAgentClient.fetchWithRetries(request))
+                .thenReturn(List.of(new AiCallResult("{}", 200, "{}", failure, null, 33L)));
+
+        service.process(1L);
+
+        assertThat(dispatch.getStatus()).isEqualTo(DispatchStatus.FAILED);
+        assertThat(dispatch.getErrorMessage()).contains("SOLUTION_ID_MISMATCH");
+        verify(actionInboxWriter, never()).writeProposal(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(cpbMetrics).incrementAiCallFailure();
+        verify(cpbMetrics, never()).incrementInboxWritten();
+
+        ArgumentCaptor<AiProcess> processCaptor = ArgumentCaptor.forClass(AiProcess.class);
+        verify(aiProcessRepository, times(2)).save(processCaptor.capture());
+        AiProcess finalProcess = processCaptor.getAllValues().get(processCaptor.getAllValues().size() - 1);
+        assertThat(finalProcess.getStatus()).isEqualTo(AiProcessStatus.FAILED);
+        assertThat(finalProcess.getErrorCode()).isEqualTo("SOLUTION_ID_MISMATCH");
+        assertThat(finalProcess.getStatusResult()).isEqualTo("FAILURE");
+    }
+
+    @Test
+    void r5TurundeOncekiAiSolutionIdBulunupMappereGecirilir() {
+        // Didar rehberi §3 adim 6: "ayni ticket + ayni aiSolutionId" geri gonderilmeli.
+        dispatch.setTriggerRule(TriggerRule.R5);
+        when(flowGuard.isAiCallEnabled()).thenReturn(true);
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+        when(ticketContextRepository.findById(20L)).thenReturn(Optional.of(context));
+        when(aiProcessRepository.findByDispatchIdAndIteration(1L, 1)).thenReturn(Optional.empty());
+        when(aiProcessRepository.save(any(AiProcess.class))).thenAnswer(inv -> {
+            AiProcess p = inv.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(103L);
+            }
+            return p;
+        });
+        when(aiProcessRepository.findLatestAiSolutionId(10L)).thenReturn(Optional.of("onceki-sol-99"));
+        JsonNode request = sampleRequest();
+        when(contextRequestMapper.toRequest(eq(ticket), eq(context), eq(dispatch), eq(1),
+                eq("onceki-sol-99"), any())).thenReturn(request);
+        AiFetchResponse response = TestResponses.noActionNeeded("sol-2", "Ek aksiyon gerekmiyor");
+        when(aiAgentClient.fetchWithRetries(request))
+                .thenReturn(List.of(new AiCallResult("{}", 200, "{}", response, null, 20L)));
+        when(actionInboxWriter.writeProposal(dispatch, ticket, response, false)).thenReturn(new AiActionInbox());
+
+        service.process(1L);
+
+        // Onceki tur kimligi mapper'a GECIRILDI (eq("onceki-sol-99") eslesmeseydi stub calismazdi).
+        verify(contextRequestMapper).toRequest(eq(ticket), eq(context), eq(dispatch), eq(1),
+                eq("onceki-sol-99"), any());
+        assertThat(dispatch.getStatus()).isEqualTo(DispatchStatus.COMPLETED);
+    }
+
+    @Test
+    void r4TurundeOncekiAiSolutionIdHicARANMAZ_nullGecirilir() {
+        // R4 ilk turdur; onceki bir oneri yoktur, gereksiz sorgu atilmamalidir.
+        when(flowGuard.isAiCallEnabled()).thenReturn(true);
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+        when(ticketContextRepository.findById(20L)).thenReturn(Optional.of(context));
+        when(aiProcessRepository.findByDispatchIdAndIteration(1L, 1)).thenReturn(Optional.empty());
+        when(aiProcessRepository.save(any(AiProcess.class))).thenAnswer(inv -> {
+            AiProcess p = inv.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(104L);
+            }
+            return p;
+        });
+        JsonNode request = sampleRequest();
+        when(contextRequestMapper.toRequest(eq(ticket), eq(context), eq(dispatch), eq(1), eq(null), any()))
+                .thenReturn(request);
+        AiFetchResponse response = TestResponses.proposal("sol-3", "oneri");
+        when(aiAgentClient.fetchWithRetries(request))
+                .thenReturn(List.of(new AiCallResult("{}", 200, "{}", response, null, 15L)));
+        when(actionInboxWriter.writeProposal(dispatch, ticket, response, false)).thenReturn(new AiActionInbox());
+
+        service.process(1L);
+
+        verify(aiProcessRepository, never()).findLatestAiSolutionId(anyLong());
     }
 
     @Test
@@ -252,9 +351,8 @@ class DispatchProcessingServiceTest {
         assertThat(dispatch.getErrorMessage()).isEqualTo("onceki hata");
     }
 
-    private AiFetchRequest sampleRequest() {
-        return new AiFetchRequest(ticket.getDcaseTicketId().toString(), 1L, 1, 1, "R4", "p", "m", "s", "t", "d",
-                "msisdn", "cust", "Orta", null, List.of(), null);
+    private JsonNode sampleRequest() {
+        return new ObjectMapper().createObjectNode().put("schemaVersion", 1);
     }
 
     private static <T> T eq(T value) {

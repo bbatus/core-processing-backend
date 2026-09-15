@@ -57,6 +57,18 @@ public class AiProcess {
     @Column(name = "ai_status")
     private String aiStatus;
 
+    /** AI yanitindaki {@code statusResult}: SUCCESS | PARTIAL | FAILURE (V2, rehber §7). */
+    @Column(name = "status_result")
+    private String statusResult;
+
+    /** AI yanitindaki {@code errorCode} — yalnizca {@code statusResult=FAILURE} iken dolu (V2, §8). */
+    @Column(name = "error_code")
+    private String errorCode;
+
+    /** AI tarafindaki denetim kimligi ({@code transactionId}, V2, §7). */
+    @Column(name = "transaction_id")
+    private String transactionId;
+
     @Column(name = "inbox_action_id")
     private Long inboxActionId;
 

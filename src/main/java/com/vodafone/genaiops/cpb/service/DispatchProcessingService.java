@@ -1,9 +1,10 @@
 package com.vodafone.genaiops.cpb.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.vodafone.genaiops.cpb.client.AiAgentClient;
 import com.vodafone.genaiops.cpb.config.AiProperties;
 import com.vodafone.genaiops.cpb.dto.AiCallResult;
-import com.vodafone.genaiops.cpb.dto.AiFetchRequest;
+import com.vodafone.genaiops.cpb.dto.AiFetchResponse;
 import com.vodafone.genaiops.cpb.entity.AiDispatch;
 import com.vodafone.genaiops.cpb.entity.AiInteraction;
 import com.vodafone.genaiops.cpb.entity.AiProcess;
@@ -12,6 +13,7 @@ import com.vodafone.genaiops.cpb.entity.TicketContext;
 import com.vodafone.genaiops.cpb.enums.AiProcessStatus;
 import com.vodafone.genaiops.cpb.enums.AuditCategory;
 import com.vodafone.genaiops.cpb.enums.DispatchStatus;
+import com.vodafone.genaiops.cpb.enums.TriggerRule;
 import com.vodafone.genaiops.cpb.mapper.ContextRequestMapper;
 import com.vodafone.genaiops.cpb.repository.AiDispatchRepository;
 import com.vodafone.genaiops.cpb.repository.AiInteractionRepository;
@@ -117,7 +119,13 @@ public class DispatchProcessingService {
             return;
         }
 
-        AiFetchRequest request = contextRequestMapper.toRequest(ticket, context, dispatch, iteration);
+        // R5/R6'da AI'a onceki turun oneri kimligi geri gonderilir ("eslesme kontrolu", rehber §3
+        // adim 6-7). R4 ilk tur oldugu icin null gider.
+        String previousAiSolutionId = dispatch.getTriggerRule() == TriggerRule.R4
+                ? null
+                : aiProcessRepository.findLatestAiSolutionId(dispatch.getTicketId()).orElse(null);
+        JsonNode request = contextRequestMapper.toRequest(ticket, context, dispatch, iteration,
+                previousAiSolutionId, MDC.get("correlationId"));
         List<AiCallResult> attempts = aiAgentClient.fetchWithRetries(request);
         persistInteractions(process, attempts);
 
@@ -132,16 +140,40 @@ public class DispatchProcessingService {
             return;
         }
 
-        actionInboxWriter.writeProposal(dispatch, ticket, last.response(), false);
+        AiFetchResponse response = last.response();
+        recordResponseMetadata(process, response);
+
+        // ⚠️ 2026-09-15: AI "HTTP 200 + statusResult=FAILURE" donebilir (rehber §8) — ornegin
+        // SOLUTION_ID_MISMATCH ya da SESSION_EXPIRED. Bu, tasima katmani basarili olsa bile ISLEV
+        // olarak basarisizliktir: DCase'e yazilacak bir oneri YOKTUR, inbox'a kayit ACILMAZ.
+        if (response.isFailure()) {
+            cpbMetrics.incrementAiCallFailure();
+            finishProcess(process, AiProcessStatus.FAILED, null, response.failureSummary());
+            failDispatch(dispatch, response.failureSummary());
+            auditLogService.write(AuditCategory.CPB_AI_RETURNED_FAILURE, ticket.getDcaseTicketId(),
+                    Map.of(DISPATCH_ID, dispatch.getId(), "errorCode", String.valueOf(response.errorCode()),
+                            "message", String.valueOf(response.message())));
+            return;
+        }
+
+        actionInboxWriter.writeProposal(dispatch, ticket, response, false);
         cpbMetrics.incrementInboxWritten();
-        finishProcess(process, AiProcessStatus.SUCCEEDED, last.response().solutionUniqueid(),
-                last.response().solution());
+        finishProcess(process, AiProcessStatus.SUCCEEDED, response.aiSolutionId(), response.solution());
         completeDispatch(dispatch);
         auditLogService.write(AuditCategory.CPB_AI_CALL_SUCCEEDED, ticket.getDcaseTicketId(),
-                Map.of(DISPATCH_ID, dispatch.getId(), "solutionUniqueid",
-                        String.valueOf(last.response().solutionUniqueid())));
+                Map.of(DISPATCH_ID, dispatch.getId(), "aiSolutionId", String.valueOf(response.aiSolutionId()),
+                        "statusResult", String.valueOf(response.statusResult())));
         auditLogService.write(AuditCategory.CPB_INBOX_WRITTEN, ticket.getDcaseTicketId(),
                 Map.of(DISPATCH_ID, dispatch.getId()));
+    }
+
+    /** AI yanitinin denetim alanlarini ({@code statusResult}/{@code errorCode}/{@code transactionId})
+     * {@code ai_process}'e yazar — basarili da olsa basarisiz da olsa (V2 migration, rehber §7). */
+    private void recordResponseMetadata(AiProcess process, AiFetchResponse response) {
+        process.setStatusResult(response.statusResult());
+        process.setErrorCode(response.errorCode());
+        process.setTransactionId(response.transactionId());
+        process.setAiStatus(response.statusResult());
     }
 
     private AiProcess startProcess(AiDispatch dispatch, Ticket ticket, int iteration) {

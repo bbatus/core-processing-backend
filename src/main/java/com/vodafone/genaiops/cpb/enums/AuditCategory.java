@@ -9,5 +9,7 @@ public enum AuditCategory {
     CPB_AI_CALL_FAILED,
     CPB_INBOX_WRITTEN,
     CPB_SKIPPED_KILL_SWITCH,
-    CPB_MAX_ITERATIONS_REACHED
+    CPB_MAX_ITERATIONS_REACHED,
+    /** AI HTTP 200 dondu ama statusResult=FAILURE (rehber §8) — inbox ACILMAZ. */
+    CPB_AI_RETURNED_FAILURE
 }

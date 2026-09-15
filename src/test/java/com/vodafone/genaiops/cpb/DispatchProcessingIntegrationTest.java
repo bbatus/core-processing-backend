@@ -24,7 +24,7 @@ class DispatchProcessingIntegrationTest extends AbstractIntegrationTest {
     @Test
     void tcC1_mutluYol_dispatchClaimEdilirAiCagrilirInboxYazilirDispatchTamamlanir() {
         UUID dcaseTicketId = UUID.randomUUID();
-        stubAiAgentSuccess("sol-it-1", "Tespit ve oneri metni", "NEEDS_APPROVAL");
+        stubAiAgentSuccess("sol-it-1", "Tespit ve oneri metni", true);
         Long dispatchId = seedTicketContextDispatch(dcaseTicketId, 1, "R4");
 
         await().atMost(AWAIT_TIMEOUT).untilAsserted(() -> {
@@ -61,7 +61,7 @@ class DispatchProcessingIntegrationTest extends AbstractIntegrationTest {
     @Test
     void tcC6_ayniDispatchTekrarPendingeDusseBileCiftInboxKaydiOlusmaz() {
         UUID dcaseTicketId = UUID.randomUUID();
-        stubAiAgentSuccess("sol-it-2", "Ikinci tur oneri", "NEEDS_APPROVAL");
+        stubAiAgentSuccess("sol-it-2", "Ikinci tur oneri", true);
         Long dispatchId = seedTicketContextDispatch(dcaseTicketId, 1, "R4");
 
         await().atMost(AWAIT_TIMEOUT).untilAsserted(() ->
@@ -83,5 +83,70 @@ class DispatchProcessingIntegrationTest extends AbstractIntegrationTest {
         assertThat(inbox.get(0).getSourceMessageId()).isEqualTo(firstSourceMessageId);
         // C5.3 regresyonu: AI Agent'a ikinci kez gidilmemis olmali (yalnizca ilk turdaki 1 istek).
         AI_AGENT.verify(1, com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(urlPathEqualTo(fetchPath())));
+    }
+
+    @Test
+    void tcC10_aiStatusResultFAILUREDonerseDispatchFailedOlurInboxYazilmaz() {
+        // 2026-09-15 sozlesmesi (Didar rehberi §8): HTTP 200 + statusResult=FAILURE ISLEV olarak
+        // basarisizliktir — DCase'e yazilacak bir oneri yoktur.
+        UUID dcaseTicketId = UUID.randomUUID();
+        stubAiAgentFailure("SESSION_EXPIRED", "Oneri oturumu zaman asimina ugradi.");
+        Long dispatchId = seedTicketContextDispatch(dcaseTicketId, 1, "R4");
+
+        await().atMost(AWAIT_TIMEOUT).untilAsserted(() ->
+                assertThat(aiDispatchRepository.findById(dispatchId).orElseThrow().getStatus())
+                        .isEqualTo(DispatchStatus.FAILED));
+
+        assertThat(aiActionInboxRepository.findAll()).isEmpty();
+        var process = aiProcessRepository.findAll().get(0);
+        assertThat(process.getErrorCode()).isEqualTo("SESSION_EXPIRED");
+        assertThat(process.getStatusResult()).isEqualTo("FAILURE");
+        assertThat(process.getTransactionId()).isEqualTo("txn-err");
+    }
+
+    @Test
+    void tcC11_aiInteractionaYazilanIstekGovdesindePiiMASKELENIR_amaAIyaHamGider() {
+        // KVKK (rehber §6/§9): MSISDN ve musteri adi AI'a ham gitmek ZORUNDA (Oracle sorgusu icin),
+        // ama kendi denetim tablomuza maskeli dusmeli.
+        UUID dcaseTicketId = UUID.randomUUID();
+        stubAiAgentSuccess("sol-it-3", "Oneri", true);
+        Long dispatchId = seedTicketContextDispatch(dcaseTicketId, 1, "R4");
+
+        await().atMost(AWAIT_TIMEOUT).untilAsserted(() ->
+                assertThat(aiDispatchRepository.findById(dispatchId).orElseThrow().getStatus())
+                        .isEqualTo(DispatchStatus.COMPLETED));
+
+        // (a) DB'ye maskeli yazildi
+        String storedRequest = aiInteractionRepository.findAll().get(0).getRequestBody();
+        assertThat(storedRequest).doesNotContain("905906020100", "TEST2506");
+        assertThat(storedRequest).contains("Iade bakiyeme yansimadi");
+
+        // (b) AI Agent'a giden GERCEK govdede ham degerler var (WireMock aldigi istegi dogruluyor)
+        AI_AGENT.verify(com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(urlPathEqualTo(fetchPath()))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.containing("905906020100")));
+    }
+
+    @Test
+    void tcC12_gonderilenIstekTEKSEMA_nestedVeZarfAlanlariIcerir() {
+        UUID dcaseTicketId = UUID.randomUUID();
+        stubAiAgentSuccess("sol-it-4", "Oneri", true);
+        Long dispatchId = seedTicketContextDispatch(dcaseTicketId, 1, "R4");
+
+        await().atMost(AWAIT_TIMEOUT).untilAsserted(() ->
+                assertThat(aiDispatchRepository.findById(dispatchId).orElseThrow().getStatus())
+                        .isEqualTo(DispatchStatus.COMPLETED));
+
+        var wm = com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(urlPathEqualTo(fetchPath()));
+        AI_AGENT.verify(wm
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.schemaVersion"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.traceId"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.idempotencyKey"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock
+                        .matchingJsonPath("$.ticket.category.product"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock
+                        .matchingJsonPath("$.processing.iteration")));
+        // Eski duz sema alanlari ARTIK GONDERILMIYOR.
+        AI_AGENT.verify(0, wm.withRequestBody(
+                com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.main_category")));
     }
 }

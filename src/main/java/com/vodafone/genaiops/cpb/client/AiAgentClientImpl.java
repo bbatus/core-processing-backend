@@ -1,10 +1,11 @@
 package com.vodafone.genaiops.cpb.client;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vodafone.genaiops.cpb.config.AiProperties;
 import com.vodafone.genaiops.cpb.dto.AiCallResult;
-import com.vodafone.genaiops.cpb.dto.AiFetchRequest;
 import com.vodafone.genaiops.cpb.dto.AiFetchResponse;
+import com.vodafone.genaiops.cpb.util.PayloadMasker;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -28,9 +29,13 @@ public class AiAgentClientImpl implements AiAgentClient {
     private final ObjectMapper objectMapper;
 
     @Override
-    public List<AiCallResult> fetchWithRetries(AiFetchRequest request) {
+    public List<AiCallResult> fetchWithRetries(JsonNode request) {
         List<AiCallResult> attempts = new ArrayList<>();
-        String requestJson = writeJson(request);
+        // ⚠️ KVKK: denetime/loga giden govde BURADA, kaynakta maskelenir — ham JSON hicbir zaman
+        // uretilmez, dolayisiyla yanlislikla ai_interaction'a yazilmasi da mumkun degil. AI Agent'a
+        // giden GERCEK govde asagida `body(request)` ile ham nesneden serialize edilir (RAG/Oracle
+        // sorgusu icin MSISDN ham gitmek ZORUNDA — bkz. PayloadMasker javadoc'u).
+        String requestJson = PayloadMasker.maskJson(request, objectMapper);
 
         for (int attempt = 1; attempt <= aiProperties.maxAttempts(); attempt++) {
             long start = System.currentTimeMillis();
@@ -74,14 +79,6 @@ public class AiAgentClientImpl implements AiAgentClient {
             Thread.sleep(1000L * attempt);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-        }
-    }
-
-    private String writeJson(AiFetchRequest request) {
-        try {
-            return objectMapper.writeValueAsString(request);
-        } catch (Exception e) {
-            return "{}";
         }
     }
 }

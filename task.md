@@ -8,7 +8,34 @@
 
 ---
 
-## Durum Özeti (2026-09-04, güncellendi)
+## Durum Özeti (2026-09-15, güncellendi)
+
+### 2026-09-15 — C11: Didar (AI ekibi) sözleşme hizalaması
+
+Didar'ın `GENAIOPS-EPCBP_ENTEGRASYON_REHBERI_REVIZE_2026-09-09.md` rehberi + 9 maddelik gereksinim
+listesi incelendi. **9 maddenin 4'ü zaten karşılanıyordu, 4'ü bu turda kodlandı, 1'i onlardan veri
+bekliyor.** Tam analiz/gerekçe: EP reposunda `docs/spec md/CPB_DIDAR_SOZLESME_HIZALAMASI_2026-09-15.md`.
+
+Kodlananlar:
+- **Tek şema sözleşmesi** — düz snake_case DTO (`AiFetchRequest`) kaldırıldı; EP'nin nested
+  `context_json`'ı birebir + zarf alanları (`traceId`, `idempotencyKey`, `processing.iteration`,
+  `processing.aiSolutionId`) gönderiliyor.
+- **PII maskeleme** (`PayloadMasker`) — `ai_interaction.request_body` + loglar maskeli; AI'a giden
+  gerçek gövde ham (Oracle sorgusu için zorunlu).
+- **Genişletilmiş yanıt sözleşmesi** — `statusResult`/`requiresApproval`/`errorCode`/`transactionId`;
+  `statusResult=FAILURE` → inbox açılmaz, dispatch FAILED (`CPB_AI_RETURNED_FAILURE` audit).
+- **R5 cross-check** — önceki turun `aiSolutionId`'si `ai_process`'ten bulunup geri gönderiliyor.
+- **V2 migration** — `ai_process`: `status_result`, `error_code`, `transaction_id`.
+
+**EP'de kod değişikliği YOK** — Didar'ın "aiSolutionId'yi EP şemasına ekleyin" talebi gerekçeli olarak
+reddedildi (CPB zarf seviyesinde enjekte ediyor, EP şeması temiz kalıyor).
+
+**Test:** 70/70 yeşil (gerçek Docker + Testcontainers), jacoco kapısı geçti. Detaylı DoD tablosu
+hizalama dokümanının §6'sında.
+
+**Açık kalanlar:** Didar'a 4 soru (dcaseUpdatePayload çelişkisi, p95 SLA, auth yöntemi,
+confirm-status) + SD onayı gereken 1 konu (rehber §12 senaryo 2 — R4'ün doğrudan kapanabilmesi;
+bilerek uygulamadık).
 
 ### Şu an kalanlar (kısa liste)
 
