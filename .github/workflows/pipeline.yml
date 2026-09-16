@@ -12,7 +12,7 @@ on:
   workflow_dispatch: {}
 
 env:
-  APP_NAME: core-processing-backend
+  APP_NAME: genaiops-core-processing-backend
   NODE_EXTRA_CA_CERTS: /etc/pki/tls/certs/ca-bundle.crt
   # EP ile AYNI OpenShift TEST ortami/namespace (vepas-ai-am) — ikinci bir servis olarak ayni
   # namespace'e deploy edilir. Degerler ayni Organizasyon Variables/Secrets'tan gelir.
@@ -168,8 +168,8 @@ jobs:
             -u "${OPENSHIFT_TEST_USER}" -p "${OPENSHIFT_TEST_PASSWORD}"
           oc project "${OPENSHIFT_NAMESPACE}"
 
-      # ⚠️ EP'deki AYNI kural: ConfigMap'ler (core-processing-backend-config/-flow) ve Secret
-      # (core-processing-backend-secret) BURADA UYGULANMAZ — calisma-zamani konfigurasyonu/kimlik
+      # ⚠️ EP'deki AYNI kural: ConfigMap'ler (genaiops-core-processing-backend-config/-flow) ve Secret
+      # (genaiops-core-processing-backend-secret) BURADA UYGULANMAZ — calisma-zamani konfigurasyonu/kimlik
       # bilgisi, OpenShift'in sahip oldugu kaynaklar. Ilk kurulumda BIR KERE elle `oc apply` edilir,
       # pipeline bir daha dokunmaz (kill-switch/config drift riskini onlemek icin).
       - name: Apply ServiceAccount

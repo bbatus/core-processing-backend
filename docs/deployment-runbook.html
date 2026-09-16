@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>core-processing-backend — Deployment Runbook</title>
+<title>genaiops-core-processing-backend — Deployment Runbook</title>
 <style>
   :root {
     --ink: #12161d;
@@ -483,16 +483,16 @@
             <span class="step-num">1</span>
             <div>
               <h3>Repoyu GHES'e taşı (ilk clone)</h3>
-              <p class="step-sub">Bu repo şu an yalnızca github.com/bbatus/core-processing-backend'de. EP ile aynı akış: GHES (github.vpara.local) tarafında yeni bir repo açılıp içerik oraya taşınır.</p>
+              <p class="step-sub">Bu repo şu an yalnızca github.com/bbatus/genaiops-core-processing-backend'de. EP ile aynı akış: GHES (github.vpara.local) tarafında yeni bir repo açılıp içerik oraya taşınır.</p>
             </div>
             <span class="badge badge-manual">Elle</span>
           </div>
           <div class="step-body">
-            <p>GHES'te <code>core-processing-backend</code> adında boş bir repo oluşturun (organizasyon: EP'nin bulunduğu aynı org). Ardından bu makineden:</p>
+            <p>GHES'te <code>genaiops-core-processing-backend</code> adında boş bir repo oluşturun (organizasyon: EP'nin bulunduğu aynı org). Ardından bu makineden:</p>
             <div class="code-block">
               <div class="code-head"><span>GHES'i ikinci remote olarak ekle ve pushla</span><button class="copy-btn" type="button">Kopyala</button></div>
-              <pre><code>cd ~/Documents/Projects/core-processing-backend
-git remote add ghes git@github.vpara.local:&lt;org&gt;/core-processing-backend.git
+              <pre><code>cd ~/Documents/Projects/genaiops-core-processing-backend
+git remote add ghes git@github.vpara.local:&lt;org&gt;/genaiops-core-processing-backend.git
 git remote -v
 
 git push ghes main</code></pre>
@@ -523,7 +523,7 @@ git push ghes main</code></pre>
               <span class="mark">Neden garanti değil</span>
               <p>EP'nin <code>pipeline.yml</code>'i <code>vars.OPENSHIFT_SERVER_TST</code>, <code>secrets.OPENSHIFT_TEST_PASSWORD</code>, <code>secrets.REGISTRY_LOGIN_TOKEN</code>, <code>secrets.SONAR_TOKEN</code>, <code>secrets.FORTIFY_TOKEN</code>, <code>secrets.MEND_PROXY_PASSWORD</code> gibi değerleri okuyor. Bunlar GHES'te <strong>Organizasyon</strong> seviyesinde tanımlıysa (ve bu repo'yla paylaşılıyorsa) otomatik gelir. <strong>Repo</strong> seviyesinde yalnızca EP'ye özel tanımlandıysa, CPB'de bunlar boş gelir ve ilgili job (build-and-deploy, mend-scan, fortify-scan, sonar-scan) ilk çalıştırmada patlar.</p>
             </div>
-            <p>GHES web arayüzünden kontrol edin: <strong>Organization Settings → Secrets and variables → Actions</strong> — aşağıdaki isimlerin "Repository access" listesinde <code>core-processing-backend</code>'in de olduğunu (ya da "All repositories" seçili olduğunu) doğrulayın.</p>
+            <p>GHES web arayüzünden kontrol edin: <strong>Organization Settings → Secrets and variables → Actions</strong> — aşağıdaki isimlerin "Repository access" listesinde <code>genaiops-core-processing-backend</code>'in de olduğunu (ya da "All repositories" seçili olduğunu) doğrulayın.</p>
             <div class="var-grid">
               <table class="var-table">
                 <caption>Variables</caption>
@@ -647,7 +647,7 @@ AI_AGENT_API_KEY="dummy-not-yet-provided" envsubst &lt; k8s/secret.yaml | oc app
             </div>
             <div class="code-block">
               <div class="code-head"><span>image ref biçimi</span><button class="copy-btn" type="button">Kopyala</button></div>
-              <pre><code>containers.github.vpara.local/<span class="k">&lt;repository_owner&gt;</span>/core-processing-backend:<span class="k">&lt;commit sha&gt;</span></code></pre>
+              <pre><code>containers.github.vpara.local/<span class="k">&lt;repository_owner&gt;</span>/genaiops-core-processing-backend:<span class="k">&lt;commit sha&gt;</span></code></pre>
             </div>
           </div>
         </article>
@@ -702,16 +702,16 @@ oc apply -f k8s/hpa.yaml</code></pre>
             </div>
             <div class="code-block">
               <div class="code-head"><span>bash — AI çağrısını geçici kapat</span><button class="copy-btn" type="button">Kopyala</button></div>
-              <pre><code>oc patch configmap core-processing-backend-flow --type merge \
+              <pre><code>oc patch configmap genaiops-core-processing-backend-flow --type merge \
   -p '{"data":{"FLOW_AI_CALL_ENABLED":"false"}}'</code></pre>
             </div>
             <div class="code-block">
               <div class="code-head"><span>bash — deploy</span><button class="copy-btn" type="button">Kopyala</button></div>
-              <pre><code>IMAGE_REF=containers.github.vpara.local/&lt;owner&gt;/core-processing-backend:&lt;sha&gt; \
+              <pre><code>IMAGE_REF=containers.github.vpara.local/&lt;owner&gt;/genaiops-core-processing-backend:&lt;sha&gt; \
   envsubst &lt; k8s/deployment.yaml | oc apply -f -
 
-oc rollout status deployment/core-processing-backend --timeout=300s
-oc logs -f deploy/core-processing-backend</code></pre>
+oc rollout status deployment/genaiops-core-processing-backend --timeout=300s
+oc logs -f deploy/genaiops-core-processing-backend</code></pre>
             </div>
             <p>Açılış loglarında görmeniz gerekenler:</p>
             <div class="verify-grid">
@@ -751,9 +751,9 @@ oc logs -f deploy/core-processing-backend</code></pre>
           <div class="step-body">
             <div class="code-block">
               <div class="code-head"><span>bash — port-forward ile health/metrics</span><button class="copy-btn" type="button">Kopyala</button></div>
-              <pre><code>oc get pods -l app=core-processing-backend -o wide
+              <pre><code>oc get pods -l app=genaiops-core-processing-backend -o wide
 
-oc port-forward deploy/core-processing-backend 8083:8083 &amp;
+oc port-forward deploy/genaiops-core-processing-backend 8083:8083 &amp;
 
 curl -s "http://localhost:8083/actuator/health/liveness"
 curl -s "http://localhost:8083/actuator/health/readiness"
@@ -810,17 +810,17 @@ curl -s "http://localhost:8083/actuator/prometheus" | grep -E "cpb_(dispatch_cla
           <div class="step-body">
             <div class="code-block">
               <div class="code-head"><span>bash</span><button class="copy-btn" type="button">Kopyala</button></div>
-              <pre><code>oc patch configmap core-processing-backend-config --type merge \
+              <pre><code>oc patch configmap genaiops-core-processing-backend-config --type merge \
   -p '{"data":{"AI_AGENT_BASE_URL":"&lt;Didar-ekibinin-verdigi-gercek-URL&gt;"}}'
 
 AI_AGENT_API_KEY="&lt;gercek-key&gt;" envsubst &lt; k8s/secret.yaml | oc apply -f -
 
-oc patch configmap core-processing-backend-flow --type merge \
+oc patch configmap genaiops-core-processing-backend-flow --type merge \
   -p '{"data":{"FLOW_AI_CALL_ENABLED":"true"}}'
 
-oc rollout restart deployment/core-processing-backend
-oc rollout status deployment/core-processing-backend --timeout=300s
-oc logs -f deploy/core-processing-backend</code></pre>
+oc rollout restart deployment/genaiops-core-processing-backend
+oc rollout status deployment/genaiops-core-processing-backend --timeout=300s
+oc logs -f deploy/genaiops-core-processing-backend</code></pre>
             </div>
             <div class="callout info">
               <span class="mark">Auth şeması netleşmediyse (§14-S3)</span>
@@ -904,13 +904,13 @@ SELECT category, dcase_ticket_id, created_at FROM audit_log ORDER BY created_at 
             </table>
             <div class="code-block">
               <div class="code-head"><span>Genel teşhis</span><button class="copy-btn" type="button">Kopyala</button></div>
-              <pre><code>oc get pods -l app=core-processing-backend
-oc describe pod -l app=core-processing-backend | tail -30
-oc logs deploy/core-processing-backend --tail=200
-oc logs deploy/core-processing-backend --previous --tail=100   # crash öncesi
+              <pre><code>oc get pods -l app=genaiops-core-processing-backend
+oc describe pod -l app=genaiops-core-processing-backend | tail -30
+oc logs deploy/genaiops-core-processing-backend --tail=200
+oc logs deploy/genaiops-core-processing-backend --previous --tail=100   # crash öncesi
 
 # Uygulamanın gördüğü config
-oc set env deploy/core-processing-backend --list | sort</code></pre>
+oc set env deploy/genaiops-core-processing-backend --list | sort</code></pre>
             </div>
           </div>
         </article>
@@ -920,7 +920,7 @@ oc set env deploy/core-processing-backend --list | sort</code></pre>
   </div>
 
   <footer class="foot">
-    <span>core-processing-backend — deployment runbook v1</span>
+    <span>genaiops-core-processing-backend — deployment runbook v1</span>
     <span id="footStamp"></span>
   </footer>
 </div>

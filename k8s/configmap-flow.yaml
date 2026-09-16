@@ -4,8 +4,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: core-processing-backend-flow
-  labels: { app: core-processing-backend }
+  name: genaiops-core-processing-backend-flow
+  labels: { app: genaiops-core-processing-backend }
 data:
   FLOW_ENABLED: "true"
   FLOW_CPB_POLL_ENABLED: "true"

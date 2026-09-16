@@ -1,4 +1,4 @@
-# task.md — core-processing-backend (CPB) Görev Kırılımı
+# task.md — genaiops-core-processing-backend (CPB) Görev Kırılımı
 
 > **Tek teknik referans:** `genaiops-event-processor` reposundaki
 > `docs/spec md/CPB_TASARIM_VE_GELISTIRME_PLANI_2026-09-02.md` (§X buradaki referanslar bu dokümanın
@@ -116,7 +116,7 @@ Geri kalan her şey (kod, testler, CI wiring, k8s manifestleri) **tamamlandı**.
   iteration/correlationId).
 - [x] **C1.5 — k8s/**: `serviceaccount.yaml` (aynı `vodafone-githubtest` imagePullSecret),
   `service.yaml` (8083), `deployment.yaml` (envFrom: EP'nin `genaiops-event-processor-config`/
-  `-secret` + CPB'nin kendi `core-processing-backend-config`/`-flow`/`-secret`, Kafka/Redis/MinIO
+  `-secret` + CPB'nin kendi `genaiops-core-processing-backend-config`/`-flow`/`-secret`, Kafka/Redis/MinIO
   volume'leri YOK), `hpa.yaml` (1→3), `configmap.yaml`/`configmap-flow.yaml`/`secret.yaml`
   (pipeline tarafından uygulanmaz — ilk kurulumda elle).
 - [x] **C1.6 — .github/workflows/pipeline.yml**: EP'nin kök pipeline.yml'iyle birebir aynı yapı

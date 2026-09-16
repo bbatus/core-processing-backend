@@ -1,4 +1,4 @@
-# core-processing-backend (CPB)
+# genaiops-core-processing-backend (CPB)
 
 GenAI Ops platformunun üç bileşeninden biri. `genaiops-event-processor` (EP) reposunun hazırladığı
 `ai_dispatch` kuyruğundan (paylaşılan PostgreSQL) iş alır, AI Agent'a (Didar ekibinin ayrı servisi)
@@ -69,7 +69,7 @@ OCP'de env/ConfigMap ile doldurulmuş olarak kullanılmalıdır.
 
 ## Kill-switch'ler
 
-`core-processing-backend-flow` ConfigMap'inden gelir, pod açılışında okunur (değişiklik sonrası
+`genaiops-core-processing-backend-flow` ConfigMap'inden gelir, pod açılışında okunur (değişiklik sonrası
 `oc rollout restart` gerekir):
 
 | Bayrak | Ne yapar |

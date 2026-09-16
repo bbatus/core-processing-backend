@@ -1,6 +1,6 @@
 spring:
   application:
-    name: core-processing-backend
+    name: genaiops-core-processing-backend
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
 

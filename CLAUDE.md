@@ -1,4 +1,4 @@
-# CLAUDE.md — core-processing-backend (CPB)
+# CLAUDE.md — genaiops-core-processing-backend (CPB)
 
 Bu dosya, Claude Code'un bu repoda çalışırken uyması gereken rehberdir. **Kodlamaya başlamadan önce
 `task.md` (görev kırılımı) ve `genaiops-event-processor` reposundaki
@@ -12,7 +12,7 @@ Bu dosya, Claude Code'un bu repoda çalışırken uyması gereken rehberdir. **K
 
 ## 1. Proje Nedir
 
-`core-processing-backend` (CPB), GenAI Ops platformunun üç bileşeninden biridir:
+`genaiops-core-processing-backend` (CPB), GenAI Ops platformunun üç bileşeninden biridir:
 
 | Servis | Sahibi | Bu repo mu? |
 |---|---|---|
@@ -104,7 +104,7 @@ TEKRAR OLUŞTURULMAZ**, yalnızca aynı isim + `allocationSize=50` ile referans 
 
 ## 5. Kill-Switch'ler
 
-ConfigMap `core-processing-backend-flow`'dan gelir:
+ConfigMap `genaiops-core-processing-backend-flow`'dan gelir:
 
 - `FLOW_ENABLED` (master), `FLOW_CPB_POLL_ENABLED`, `FLOW_AI_CALL_ENABLED`,
   `FLOW_INBOX_WRITE_ENABLED`, `FLOW_AI_CONFIRM_ENABLED` (Faz 3'e kadar `false`).
@@ -154,7 +154,7 @@ ConfigMap `core-processing-backend-flow`'dan gelir:
 ```bash
 mvn clean verify                 # build + test
 mvn spring-boot:run              # lokal çalıştırma (env/config gerekli, application-local.yml)
-podman build -t core-processing-backend -f Containerfile .
+podman build -t genaiops-core-processing-backend -f Containerfile .
 oc apply -f k8s/                 # OCP deploy (CD pipeline yapar — configmap/flow/secret HARİÇ, elle)
 ```
 
